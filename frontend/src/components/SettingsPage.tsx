@@ -9,7 +9,7 @@ import { FolderOpen, Save, RotateCcw, Info, ArrowRight, Settings, FolderCog, } f
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { FileBrowser } from "@/components/FileBrowser";
-import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, FONT_OPTIONS, FOLDER_PRESETS, FILENAME_PRESETS, TEMPLATE_VARIABLES, type Settings as SettingsType, type FontFamily, type FolderPreset, type FilenamePreset, } from "@/lib/settings";
+import { getSettings, loadSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, FONT_OPTIONS, FOLDER_PRESETS, FILENAME_PRESETS, TEMPLATE_VARIABLES, type Settings as SettingsType, type FontFamily, type FolderPreset, type FilenamePreset, } from "@/lib/settings";
 import { themes, applyTheme } from "@/lib/themes";
 
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
@@ -59,6 +59,11 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             onResetRequest(resetToSaved);
         }
     }, [onResetRequest, resetToSaved]);
+    useEffect(() => {
+        let cancelled = false;
+        loadSettings().then((s) => { if (!cancelled) { setSavedSettings(s); setTempSettings(s); } });
+        return () => { cancelled = true; };
+    }, []); // sync from backend on mount
     useEffect(() => {
         onUnsavedChangesChange?.(hasUnsavedChanges);
     }, [hasUnsavedChanges, onUnsavedChangesChange]);
