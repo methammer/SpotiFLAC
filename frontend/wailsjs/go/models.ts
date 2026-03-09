@@ -28,3 +28,22 @@ export namespace main {
     constructor(data?: any) { if (data) Object.assign(this, data); }
   }
 }
+
+export namespace backend {
+  export class DownloadQueueInfo {
+    [key: string]: any;
+    constructor(data?: any) { if (data) Object.assign(this, data); }
+  }
+  export class RenamePreview {
+    [key: string]: any;
+    constructor(data?: any) { if (data) Object.assign(this, data); }
+  }
+  export class RenameResult {
+    [key: string]: any;
+    constructor(data?: any) { if (data) Object.assign(this, data); }
+  }
+  export class SearchResponse {
+    [key: string]: any;
+    constructor(data?: any) { if (data) Object.assign(this, data); }
+  }
+}
