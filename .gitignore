@@ -62,3 +62,13 @@ test
 # Build notes (optional - uncomment if you don't want to commit)
 # BUILD_NOTES.md
 push.bat
+# SpotiFLAC
+config/
+*.db
+*.tar.gz
+docker-compose-spotiflac.yaml
+docker-compose-spotiflac\ dev.yaml
+patch-*.sh
+create-shims.sh
+push.bat
+config/

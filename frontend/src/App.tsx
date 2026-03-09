@@ -5,7 +5,9 @@ import { Search, X, ArrowUp } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getSettings, getSettingsWithDefaults, loadSettings, saveSettings, applyThemeMode, applyFont, updateSettings } from "@/lib/settings";
 import { applyTheme } from "@/lib/themes";
-import { OpenFolder, CheckFFmpegInstalled, DownloadFFmpeg } from "../wailsjs/go/main/App";
+import { CheckFFmpegInstalled, OpenFolder, DownloadFFmpeg } from "@/lib/rpc";
+import { LoginPage } from "@/components/LoginPage";
+import { isAuthenticated, clearAuth, getUser } from "@/lib/auth";
 import { EventsOn, EventsOff, Quit } from "../wailsjs/runtime/runtime";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { TitleBar } from "@/components/TitleBar";
@@ -25,6 +27,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 import { DebugLoggerPage } from "@/components/DebugLoggerPage";
 import { AboutPage } from "@/components/AboutPage";
 import { HistoryPage } from "@/components/HistoryPage";
+import { WatchlistPage } from "@/components/WatchlistPage";
 import type { HistoryItem } from "@/components/FetchHistory";
 import { useDownload } from "@/hooks/useDownload";
 import { useMetadata } from "@/hooks/useMetadata";
@@ -65,6 +68,8 @@ function App() {
     const downloadQueue = useDownloadQueueDialog();
     const downloadProgress = useDownloadProgress();
     const [isFFmpegInstalled, setIsFFmpegInstalled] = useState<boolean | null>(null);
+    const [authed, setAuthed] = useState<boolean>(isAuthenticated());
+    const [authUser, setAuthUser] = useState(getUser());
     const [isInstallingFFmpeg, setIsInstallingFFmpeg] = useState(false);
     const [ffmpegInstallProgress, setFfmpegInstallProgress] = useState(0);
     const [ffmpegInstallStatus, setFfmpegInstallStatus] = useState("");
@@ -89,6 +94,7 @@ function App() {
         };
         initSettings();
         const checkFFmpeg = async () => {
+            if (!isAuthenticated()) return;
             try {
                 const installed = await CheckFFmpegInstalled();
                 setIsFFmpegInstalled(installed);
@@ -414,6 +420,8 @@ function App() {
                 return <SettingsPage onUnsavedChangesChange={setHasUnsavedSettings} onResetRequest={setResetSettingsFn}/>;
             case "debug":
                 return <DebugLoggerPage />;
+            case "watchlist":
+                return <WatchlistPage />;
             case "about":
                 return <AboutPage version={CURRENT_VERSION}/>;
             case "history":
@@ -477,10 +485,19 @@ function App() {
                 </>);
         }
     };
+    if (!authed) {
+        return <LoginPage onLogin={() => {
+        setAuthed(true);
+        setAuthUser(getUser());
+        setIsFFmpegInstalled(null);
+        CheckFFmpegInstalled().then(setIsFFmpegInstalled).catch(() => setIsFFmpegInstalled(false));
+    }} />;
+    }
+
     return (<TooltipProvider>
         <div className="min-h-screen bg-background flex flex-col">
             <TitleBar />
-            <Sidebar currentPage={currentPage} onPageChange={handlePageChange}/>
+            <Sidebar currentPage={currentPage} onPageChange={handlePageChange} onLogout={() => { clearAuth(); setAuthed(false); setAuthUser(null); }} userName={authUser?.display_name}/>
 
 
             <div className="flex-1 ml-14 mt-10 p-4 md:p-8">

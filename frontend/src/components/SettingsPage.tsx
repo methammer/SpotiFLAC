@@ -8,9 +8,10 @@ import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/toolti
 import { FolderOpen, Save, RotateCcw, Info, ArrowRight, Settings, FolderCog, } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { FileBrowser } from "@/components/FileBrowser";
 import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, FONT_OPTIONS, FOLDER_PRESETS, FILENAME_PRESETS, TEMPLATE_VARIABLES, type Settings as SettingsType, type FontFamily, type FolderPreset, type FilenamePreset, } from "@/lib/settings";
 import { themes, applyTheme } from "@/lib/themes";
-import { SelectFolder } from "../../wailsjs/go/main/App";
+
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 const TidalIcon = ({ className }: {
     className?: string;
@@ -44,6 +45,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
     const [tempSettings, setTempSettings] = useState<SettingsType>(savedSettings);
     const [isDark, setIsDark] = useState(document.documentElement.classList.contains("dark"));
     const [showResetConfirm, setShowResetConfirm] = useState(false);
+    const [showFileBrowser, setShowFileBrowser] = useState(false);
     const hasUnsavedChanges = JSON.stringify(savedSettings) !== JSON.stringify(tempSettings);
     const resetToSaved = useCallback(() => {
         const freshSavedSettings = getSettings();
@@ -108,18 +110,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
         setShowResetConfirm(false);
         toast.success("Settings reset to default");
     };
-    const handleBrowseFolder = async () => {
-        try {
-            const selectedPath = await SelectFolder(tempSettings.downloadPath || "");
-            if (selectedPath && selectedPath.trim() !== "") {
-                setTempSettings((prev) => ({ ...prev, downloadPath: selectedPath }));
-            }
-        }
-        catch (error) {
-            console.error("Error selecting folder:", error);
-            toast.error(`Error selecting folder: ${error}`);
-        }
-    };
+    const handleBrowseFolder = () => setShowFileBrowser(true);
     const handleTidalQualityChange = async (value: "LOSSLESS" | "HI_RES_LOSSLESS") => {
         setTempSettings((prev) => ({ ...prev, tidalQuality: value }));
     };
@@ -693,6 +684,38 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                   Create M3U8 Playlist File
                 </Label>
               </div>
+              {tempSettings.createM3u8File && (
+                <div className="ml-0 pl-0 space-y-2 border-l-2 border-muted pl-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="jellyfin-m3u8"
+                      checked={!!tempSettings.jellyfinMusicPath}
+                      onChange={(e) => setTempSettings((prev) => ({
+                        ...prev,
+                        jellyfinMusicPath: e.target.checked ? "/Multimedia/Musique/Spotiflac" : "",
+                      }))}
+                      className="rounded"
+                    />
+                    <Label htmlFor="jellyfin-m3u8" className="text-sm cursor-pointer font-normal">
+                      Jellyfin compatible paths
+                    </Label>
+                  </div>
+                  {!!tempSettings.jellyfinMusicPath && (
+                    <div className="flex flex-col gap-1">
+                      <Label className="text-xs text-muted-foreground">Jellyfin music library path</Label>
+                      <input
+                        type="text"
+                        value={tempSettings.jellyfinMusicPath}
+                        onChange={(e) => setTempSettings((prev) => ({ ...prev, jellyfinMusicPath: e.target.value }))}
+                        placeholder="/Multimedia/Musique/Spotiflac"
+                        className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">Path as seen by Jellyfin (replaces /home/nonroot/Music in M3U8 files)</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center gap-3">
                 <Switch id="use-first-artist-only" checked={tempSettings.useFirstArtistOnly} onCheckedChange={(checked) => setTempSettings((prev) => ({
@@ -782,5 +805,12 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    <FileBrowser
+        isOpen={showFileBrowser}
+        onClose={() => setShowFileBrowser(false)}
+        onSelect={(p) => setTempSettings((prev) => ({ ...prev, downloadPath: p }))}
+        initialPath={tempSettings.downloadPath}
+        title="Select Download Folder"
+      />
     </div>);
 }

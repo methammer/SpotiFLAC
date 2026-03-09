@@ -1,69 +1,99 @@
 package main
 
 import (
-	"embed"
-	"encoding/json"
-	"log"
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/afkarxyz/SpotiFLAC/backend"
-
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
-//go:embed all:frontend/dist
-var assets embed.FS
-
-//go:embed wails.json
-var wailsJSON []byte
+const port = "6890"
 
 func main() {
-
-	type wailsInfo struct {
-		Info struct {
-			ProductVersion string `json:"productVersion"`
-		} `json:"info"`
-	}
-	var config wailsInfo
-	if err := json.Unmarshal(wailsJSON, &config); err == nil && config.Info.ProductVersion != "" {
-		backend.AppVersion = config.Info.ProductVersion
-	}
-
-	app := NewApp()
-
-	err := wails.Run(&options.App{
-		Title:     "SpotiFLAC",
-		Width:     1024,
-		Height:    600,
-		MinWidth:  1024,
-		MinHeight: 600,
-		Frameless: true,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 255},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		DragAndDrop: &options.DragAndDrop{
-			EnableFileDrop:     true,
-			DisableWebViewDrop: false,
-			CSSDropProperty:    "--wails-drop-target",
-			CSSDropValue:       "drop",
-		},
-		Bind: []interface{}{
-			app,
-		},
-		Windows: &windows.Options{
-			WebviewIsTransparent:              false,
-			WindowIsTranslucent:               false,
-			DisableWindowIcon:                 false,
-			DisableFramelessWindowDecorations: false,
-		},
-	})
-
+	// ── Config dir ────────────────────────────────────────────────────────
+	configDir, err := getConfigDir()
 	if err != nil {
-		log.Fatal("Error:", err.Error())
+		fmt.Printf("FATAL: cannot determine config dir: %v\n", err)
+		os.Exit(1)
 	}
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		fmt.Printf("FATAL: cannot create config dir: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("[Main] Config dir: %s\n", configDir)
+
+	// ── History DB ────────────────────────────────────────────────────────
+	if err := backend.InitHistoryDBAt(configDir); err != nil {
+		fmt.Printf("[Main] Warning: failed to init history DB: %v\n", err)
+	}
+	defer backend.CloseHistoryDB()
+
+	// ── Job manager (workers + BoltDB) ────────────────────────────────────
+	if err := InitJobManager(configDir); err != nil {
+		fmt.Printf("FATAL: cannot init job manager: %v\n", err)
+		os.Exit(1)
+	}
+	defer CloseJobManager()
+
+	// ── Auth (Jellyfin + JWT) ───────────────────────────────────────────────
+	if err := InitAuth(GetJobManager().db); err != nil {
+		fmt.Printf("FATAL: cannot init auth: %v\n", err)
+		os.Exit(1)
+	}
+	// ── Watcher (playlist sync) ───────────────────────────────────────────
+	InitWatcher(GetJobManager())
+	defer CloseWatcher()
+
+	// ── App + HTTP server ─────────────────────────────────────────────────
+	app := NewApp()
+	app.startup(context.Background())
+
+	server := NewServer(app)
+
+	httpServer := &http.Server{
+		Addr:         "0.0.0.0:" + port,
+		Handler:      server,
+		ReadTimeout:  0,            // pas de timeout — les downloads peuvent être longs
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// ── Graceful shutdown ─────────────────────────────────────────────────
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		fmt.Printf("[Main] SpotiFLAC listening on http://0.0.0.0:%s\n", port)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("FATAL: server error: %v\n", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-stop
+	fmt.Println("[Main] Shutting down gracefully...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	httpServer.Shutdown(ctx)
+
+	app.shutdown(context.Background())
+	fmt.Println("[Main] Bye.")
+}
+
+// getConfigDir retourne le dossier de config SpotiFLAC.
+// Sous Docker : /home/nonroot/.SpotiFLAC
+// En local    : ~/.SpotiFLAC
+func getConfigDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".SpotiFLAC"), nil
 }

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { AnalyzeTrack } from "../../wailsjs/go/main/App";
+import { AnalyzeTrack } from "@/lib/rpc";
 import type { AnalysisResult } from "@/types/api";
 import { logger } from "@/lib/logger";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";

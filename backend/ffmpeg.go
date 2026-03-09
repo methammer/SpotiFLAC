@@ -62,7 +62,7 @@ func GetFFmpegDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".spotiflac"), nil
+	return filepath.Join(homeDir, ".SpotiFLAC"), nil
 }
 
 func GetFFmpegPath() (string, error) {

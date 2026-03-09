@@ -1,0 +1,318 @@
+package main
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────────────────────────────────────
+
+var (
+	jellyfinURL = getEnv("JELLYFIN_URL", "http://localhost:8096")
+	jwtSecret   = []byte(getEnv("JWT_SECRET", "spotiflac-default-secret-change-me"))
+)
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UserProfile
+// ─────────────────────────────────────────────────────────────────────────────
+
+var bucketUsers = []byte("users")
+
+type UserProfile struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	DisplayName string                 `json:"display_name"`
+	IsAdmin     bool                   `json:"is_admin"`
+	AvatarURL   string                 `json:"avatar_url,omitempty"`
+	Settings    map[string]interface{} `json:"settings,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AuthManager
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AuthManager struct {
+	db *bolt.DB
+}
+
+var globalAuth *AuthManager
+
+func GetAuthManager() *AuthManager {
+	return globalAuth
+}
+
+func InitAuth(db *bolt.DB) error {
+	err := db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(bucketUsers)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	globalAuth = &AuthManager{db: db}
+	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jellyfin auth
+// ─────────────────────────────────────────────────────────────────────────────
+
+type jellyfinAuthRequest struct {
+	Username string `json:"Username"`
+	Pw       string `json:"Pw"`
+}
+
+type jellyfinAuthResponse struct {
+	User struct {
+		Id   string `json:"Id"`
+		Name string `json:"Name"`
+		Policy struct {
+			IsAdministrator bool `json:"IsAdministrator"`
+		} `json:"Policy"`
+	} `json:"User"`
+	AccessToken string `json:"AccessToken"`
+}
+
+func (a *AuthManager) AuthenticateWithJellyfin(username, password string) (*UserProfile, error) {
+	payload, _ := json.Marshal(jellyfinAuthRequest{Username: username, Pw: password})
+
+	req, err := http.NewRequest("POST",
+		jellyfinURL+"/Users/AuthenticateByName",
+		strings.NewReader(string(payload)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Emby-Authorization",
+		`MediaBrowser Client="SpotiFLAC", Device="SpotiFLAC", DeviceId="spotiflac", Version="1.0"`)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("jellyfin unreachable: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("jellyfin error: HTTP %d", resp.StatusCode)
+	}
+
+	var jResp jellyfinAuthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&jResp); err != nil {
+		return nil, fmt.Errorf("failed to parse jellyfin response: %v", err)
+	}
+
+	// Upsert UserProfile dans BoltDB
+	profile, err := a.GetOrCreateUser(jResp.User.Id, jResp.User.Name, jResp.User.Policy.IsAdministrator)
+	if err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+func (a *AuthManager) GetOrCreateUser(jellyfinID, name string, isAdmin bool) (*UserProfile, error) {
+	var profile UserProfile
+	err := a.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketUsers)
+		data := b.Get([]byte(jellyfinID))
+		if data != nil {
+			if err := json.Unmarshal(data, &profile); err != nil {
+				return err
+			}
+			// Mettre à jour nom + isAdmin
+			profile.Name = jellyfinID
+			profile.DisplayName = name
+			profile.IsAdmin = isAdmin
+			profile.UpdatedAt = time.Now()
+		} else {
+			// Nouveau user
+			profile = UserProfile{
+				ID:          jellyfinID,
+				Name:        jellyfinID,
+				DisplayName: name,
+				IsAdmin:     isAdmin,
+				Settings:    make(map[string]interface{}),
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
+			}
+		}
+		data, err := json.Marshal(profile)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(jellyfinID), data)
+	})
+	return &profile, err
+}
+
+func (a *AuthManager) GetUser(userID string) (*UserProfile, error) {
+	var profile UserProfile
+	err := a.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketUsers)
+		if b == nil {
+			return fmt.Errorf("users bucket not found")
+		}
+		data := b.Get([]byte(userID))
+		if data == nil {
+			return fmt.Errorf("user not found: %s", userID)
+		}
+		return json.Unmarshal(data, &profile)
+	})
+	return &profile, err
+}
+
+func (a *AuthManager) SaveUserSettings(userID string, settings map[string]interface{}) error {
+	return a.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketUsers)
+		if b == nil {
+			return fmt.Errorf("users bucket not found")
+		}
+		var profile UserProfile
+		data := b.Get([]byte(userID))
+		if data != nil {
+			json.Unmarshal(data, &profile)
+		}
+		profile.Settings = settings
+		profile.UpdatedAt = time.Now()
+		data, err := json.Marshal(profile)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(userID), data)
+	})
+}
+
+func (a *AuthManager) GetAllUsers() ([]UserProfile, error) {
+	var users []UserProfile
+	err := a.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketUsers)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var u UserProfile
+			if err := json.Unmarshal(v, &u); err == nil {
+				users = append(users, u)
+			}
+			return nil
+		})
+	})
+	return users, err
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JWT (HMAC-SHA256, sans dépendance externe)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type JWTClaims struct {
+	UserID      string `json:"uid"`
+	DisplayName string `json:"name"`
+	IsAdmin     bool   `json:"admin"`
+	ExpiresAt   int64  `json:"exp"`
+}
+
+func GenerateJWT(profile *UserProfile) (string, error) {
+	claims := JWTClaims{
+		UserID:      profile.ID,
+		DisplayName: profile.DisplayName,
+		IsAdmin:     profile.IsAdmin,
+		ExpiresAt:   time.Now().Add(24 * time.Hour).Unix(),
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	body := base64.RawURLEncoding.EncodeToString(payload)
+	sig := hmacSign(header + "." + body)
+	return header + "." + body + "." + sig, nil
+}
+
+func ValidateJWT(token string) (*JWTClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid token format")
+	}
+	expected := hmacSign(parts[0] + "." + parts[1])
+	if !hmac.Equal([]byte(expected), []byte(parts[2])) {
+		return nil, fmt.Errorf("invalid token signature")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid token payload")
+	}
+	var claims JWTClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+	if time.Now().Unix() > claims.ExpiresAt {
+		return nil, fmt.Errorf("token expired")
+	}
+	return &claims, nil
+}
+
+func hmacSign(data string) string {
+	mac := hmac.New(sha256.New, jwtSecret)
+	mac.Write([]byte(data))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Middleware + contexte
+// ─────────────────────────────────────────────────────────────────────────────
+
+type contextKey string
+const contextKeyUser contextKey = "user"
+
+func RequireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := ""
+		auth := r.Header.Get("Authorization")
+		if strings.HasPrefix(auth, "Bearer ") {
+			token = auth[7:]
+		}
+		if token == "" {
+			token = r.URL.Query().Get("token")
+		}
+		if token == "" {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		claims, err := ValidateJWT(token)
+		if err != nil {
+			http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), contextKeyUser, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func GetUserFromContext(r *http.Request) *JWTClaims {
+	claims, _ := r.Context().Value(contextKeyUser).(*JWTClaims)
+	return claims
+}

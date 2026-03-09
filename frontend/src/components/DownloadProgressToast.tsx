@@ -1,4 +1,3 @@
-import { useDownloadProgress } from "@/hooks/useDownloadProgress";
 import { useDownloadQueueData } from "@/hooks/useDownloadQueueData";
 import { Download, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,22 +5,24 @@ interface DownloadProgressToastProps {
     onClick: () => void;
 }
 export function DownloadProgressToast({ onClick }: DownloadProgressToastProps) {
-    const progress = useDownloadProgress();
     const queueInfo = useDownloadQueueData();
-    const hasActiveDownloads = queueInfo.queue.some(item => item.status === "queued" || item.status === "downloading");
+    const downloadingItems = queueInfo.queue.filter((item: any) => item.status === "downloading");
+    const hasActiveDownloads = queueInfo.queue.some((item: any) => item.status === "queued" || item.status === "downloading");
+    const totalMB = downloadingItems.reduce((sum: number, item: any) => sum + (item.progress || 0), 0);
+    const speed = queueInfo.current_speed || 0;
     if (!hasActiveDownloads) {
         return null;
     }
     return (<div className="fixed bottom-4 left-[calc(56px+1rem)] z-50 animate-in slide-in-from-bottom-5 data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom-5">
       <Button variant="outline" className="bg-background border rounded-lg shadow-lg p-3 h-auto hover:bg-muted/50 transition-colors cursor-pointer" onClick={onClick}>
         <div className="flex items-center gap-3">
-          <Download className={`h-4 w-4 text-primary ${progress.is_downloading ? 'animate-bounce' : ''}`}/>
+          <Download className={`h-4 w-4 text-primary ${queueInfo.is_downloading ? 'animate-bounce' : ''}`}/>
           <div className="flex flex-col min-w-[80px]">
             <p className="text-sm font-medium font-mono tabular-nums">
-              {progress.mb_downloaded.toFixed(2)} MB
+              {totalMB.toFixed(2)} MB
             </p>
-            {progress.speed_mbps > 0 && (<p className="text-xs text-muted-foreground font-mono tabular-nums">
-                {progress.speed_mbps.toFixed(2)} MB/s
+            {speed > 0 && (<p className="text-xs text-muted-foreground font-mono tabular-nums">
+                {speed.toFixed(2)} MB/s
               </p>)}
           </div>
           <ChevronRight className="h-4 w-4 text-muted-foreground ml-1"/>

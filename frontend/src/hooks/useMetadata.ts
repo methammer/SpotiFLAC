@@ -3,7 +3,7 @@ import { getSettings } from "@/lib/settings";
 import { fetchSpotifyMetadata } from "@/lib/api";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
-import { AddFetchHistory } from "../../wailsjs/go/main/App";
+import { AddFetchHistory } from "@/lib/rpc";
 import type { SpotifyMetadataResponse } from "@/types/api";
 export function useMetadata() {
     const [loading, setLoading] = useState(false);

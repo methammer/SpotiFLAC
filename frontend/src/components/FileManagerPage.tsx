@@ -8,18 +8,13 @@ import { FolderOpen, RefreshCw, FileMusic, ChevronRight, ChevronDown, Pencil, Ey
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
-import { SelectFolder } from "../../wailsjs/go/main/App";
 import { backend } from "../../wailsjs/go/models";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { getSettings } from "@/lib/settings";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
-const ListDirectoryFiles = (path: string): Promise<backend.FileInfo[]> => (window as any)['go']['main']['App']['ListDirectoryFiles'](path);
-const PreviewRenameFiles = (files: string[], format: string): Promise<backend.RenamePreview[]> => (window as any)['go']['main']['App']['PreviewRenameFiles'](files, format);
-const RenameFilesByMetadata = (files: string[], format: string): Promise<backend.RenameResult[]> => (window as any)['go']['main']['App']['RenameFilesByMetadata'](files, format);
-const ReadFileMetadata = (path: string): Promise<backend.AudioMetadata> => (window as any)['go']['main']['App']['ReadFileMetadata'](path);
-const ReadTextFile = (path: string): Promise<string> => (window as any)['go']['main']['App']['ReadTextFile'](path);
-const RenameFileTo = (oldPath: string, newName: string): Promise<void> => (window as any)['go']['main']['App']['RenameFileTo'](oldPath, newName);
-const ReadImageAsBase64 = (path: string): Promise<string> => (window as any)['go']['main']['App']['ReadImageAsBase64'](path);
+import { FileBrowser } from "@/components/FileBrowser";
+import { ListDirectoryFiles, PreviewRenameFiles, RenameFilesByMetadata } from "@/lib/rpc";
+import { ReadFileMetadata, ReadTextFile, RenameFileTo, ReadImageAsBase64 } from "@/lib/rpc";
 interface FileNode {
     name: string;
     path: string;
@@ -68,6 +63,7 @@ function formatFileSize(bytes: number): string {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 export function FileManagerPage() {
+    const [showFileBrowser, setShowFileBrowser] = useState(false);
     const [rootPath, setRootPath] = useState(() => {
         const settings = getSettings();
         return settings.downloadPath || "";
@@ -208,16 +204,7 @@ export function FileManagerPage() {
     const allAudioFiles = getAllFilesFlat(filterFilesByType(allFiles, "track"));
     const allLyricFiles = getAllFilesFlat(filterFilesByType(allFiles, "lyric"));
     const allCoverFiles = getAllFilesFlat(filterFilesByType(allFiles, "cover"));
-    const handleSelectFolder = async () => {
-        try {
-            const path = await SelectFolder(rootPath);
-            if (path)
-                setRootPath(path);
-        }
-        catch (err) {
-            toast.error("Failed to select folder", { description: err instanceof Error ? err.message : "Unknown error" });
-        }
-    };
+    const handleSelectFolder = () => setShowFileBrowser(true);
     const toggleExpand = (path: string) => {
         setAllFiles((prev) => toggleNodeExpand(prev, path));
     };
@@ -735,5 +722,12 @@ export function FileManagerPage() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  <FileBrowser
+      isOpen={showFileBrowser}
+      onClose={() => setShowFileBrowser(false)}
+      onSelect={(p) => setRootPath(p)}
+      initialPath={rootPath}
+      title="Select Music Folder"
+    />
   </div>);
 }

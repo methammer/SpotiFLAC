@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { CheckTrackAvailability } from "../../wailsjs/go/main/App";
+import { CheckTrackAvailability } from "@/lib/rpc";
 import type { TrackAvailability } from "@/types/api";
 import { logger } from "@/lib/logger";
 export function useAvailability() {

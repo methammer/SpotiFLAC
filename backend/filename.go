@@ -139,7 +139,8 @@ func NormalizePath(folderPath string) string {
 
 func SanitizeFolderPath(folderPath string) string {
 
-	normalizedPath := strings.ReplaceAll(folderPath, "/", string(filepath.Separator))
+	normalizedPath := strings.ReplaceAll(folderPath, "\\", "/")
+	normalizedPath = strings.ReplaceAll(normalizedPath, "/", string(filepath.Separator))
 
 	sep := string(filepath.Separator)
 

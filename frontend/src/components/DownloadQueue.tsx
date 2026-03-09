@@ -3,7 +3,7 @@ import { X, Download, CheckCircle2, XCircle, Clock, FileCheck, Trash2, HardDrive
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { GetDownloadQueue, ClearCompletedDownloads, ClearAllDownloads, ExportFailedDownloads } from "../../wailsjs/go/main/App";
+import { GetDownloadQueue, ClearCompletedDownloads, ClearAllDownloads, ExportFailedDownloads } from "@/lib/rpc";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { backend } from "../../wailsjs/go/models";
 interface DownloadQueueProps {
@@ -62,14 +62,20 @@ export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
     const handleExportFailed = async () => {
         try {
             const message = await ExportFailedDownloads();
-            if (message.startsWith("Successfully")) {
-                toast.success(message);
-            }
-            else if (message !== "Export cancelled") {
+            if (message.startsWith("EXPORT:")) {
+                const csv = message.slice(7);
+                const blob = new Blob([csv], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "failed_downloads.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+                toast.success("Failures exported");
+            } else {
                 toast.info(message);
             }
-        }
-        catch (error) {
+        } catch (error) {
             console.error("Failed to export:", error);
             toast.error(`Failed to export: ${error}`);
         }
@@ -230,9 +236,9 @@ export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
 
                 {item.status === "downloading" && (<div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground font-mono">
                   <span>
-                    {item.progress > 0
-                    ? `${item.progress.toFixed(2)} MB`
-                    : queueInfo.is_downloading && queueInfo.current_speed > 0
+                    {item.total_size > 0
+                    ? `${item.total_size.toFixed(2)} MB`
+                    : queueInfo.is_downloading
                         ? "Downloading..."
                         : "Starting..."}
                   </span>
@@ -247,7 +253,7 @@ export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
 
 
                 {item.status === "completed" && (<div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                  <span className="font-mono">{item.progress.toFixed(2)} MB</span>
+                  <span className="font-mono">{item.total_size > 0 ? `${item.total_size.toFixed(2)} MB` : "—"}</span>
                 </div>)}
 
 

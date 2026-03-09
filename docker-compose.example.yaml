@@ -1,0 +1,15 @@
+services:
+  spotiflac:
+    image: ghcr.io/YOURUSER/spotiflac:latest
+    container_name: spotiflac
+    restart: unless-stopped
+    ports:
+      - "6890:6890"
+    environment:
+      - JELLYFIN_URL=http://your-jellyfin-host:8096
+      - JWT_SECRET=change-me-to-a-random-32-char-string
+    volumes:
+      # Dossier de téléchargement musique
+      - /path/to/music:/home/nonroot/Music
+      # Configuration et base de données
+      - /path/to/config:/home/nonroot/.SpotiFLAC

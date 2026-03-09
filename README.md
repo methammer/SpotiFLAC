@@ -1,95 +1,142 @@
-# SpotiFLAC
+# SpotiFLAC Web
 
-<a href="https://trendshift.io/repositories/15737" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15737" alt="afkarxyz%2FSpotiFLAC | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+A self-hosted web app to download Spotify tracks in true FLAC from Tidal, Qobuz, Amazon Music & Deezer — no account required.
 
-Get Spotify tracks in true FLAC from Tidal, Qobuz, Amazon Music & Deezer — no account required.
+> **Based on [SpotiFLAC](https://github.com/afkarxyz/SpotiFLAC) by afkarxyz** — rewritten as a web server with multi-user support and Jellyfin integration.
 
-![Windows](https://img.shields.io/badge/Windows-10%2B-0078D6?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgMjAgMjAiPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTTIwIDEwLjg3M1YyMEw4LjQ3OSAxOC41MzdsLjAwMS03LjY2NEgyMFptLTEzLjEyIDBsLS4wMDEgNy40NjFMMCAxNy40NjF2LTYuNTg4aDYuODhaTTIwIDkuMjczSDguNDhsLS4wMDEtNy44MUwyMCAwdjkuMjczWk02Ljg3OSAxLjY2NmwuMDAxIDcuNjA3SDBWMi41MzlsNi44NzktLjg3M1oiLz48L3N2Zz4=)
-![macOS](https://img.shields.io/badge/macOS-10.13%2B-000000?style=for-the-badge&logo=apple&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-Any-FCC624?style=for-the-badge&logo=linux&logoColor=white)
-[![Telegram Channel](https://img.shields.io/badge/CHANNEL-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/spotiflac)
-[![Telegram Community](https://img.shields.io/badge/COMMUNITY-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/spotiflac_chat)
+## Features
 
-### [Download](https://github.com/afkarxyz/SpotiFLAC/releases)
+- 🎵 Download Spotify tracks, albums and playlists as FLAC
+- 👥 **Multi-user** — authentication via your Jellyfin server
+- 📋 **Watchlists** — auto-sync Spotify playlists at configurable intervals
+- 🎬 **Jellyfin integration** — generates M3U8 playlist files automatically
+- 🔄 **Smart sync** — detects new tracks, optionally deletes removed ones (with multi-playlist protection)
+- 📊 Real-time download queue with progress, speed and size
+- 🗂️ File browser, audio converter, audio analysis
+- 🧹 Automatic BoltDB cleanup (deduplication every 24h)
+- 🐳 Docker-first deployment
 
-## Screenshot
+## Screenshots
 
-![Image](https://github.com/user-attachments/assets/adbdc056-bace-44a9-8ba6-898b4526b65a)
+> *(add your screenshots here)*
 
-## Other projects
+## Quick Start
 
-### [SpotiFLAC Next](https://github.com/spotiverse/SpotiFLAC-Next)
+### 1. Prerequisites
 
-Get Spotify tracks in Hi-Res lossless FLACs — no account required.
+- Docker + Docker Compose
+- A running [Jellyfin](https://jellyfin.org) instance (used for authentication)
+- FFmpeg (bundled in the Docker image)
 
-### [SpotiDownloader](https://github.com/afkarxyz/SpotiDownloader)
+### 2. Deploy
 
-Get Spotify tracks in MP3 and FLAC via spotidownloader.com
+```bash
+git clone https://github.com/YOURUSER/spotiflac-web
+cd spotiflac-web
+cp docker-compose.example.yaml docker-compose.yaml
+# Edit docker-compose.yaml with your paths and settings
+docker compose up -d
+```
 
-### [SpotubeDL](https://spotubedl.com)
+### 3. Configure `docker-compose.yaml`
 
-Download Spotify Tracks, Albums, Playlists as MP3/OGG/Opus with High Quality.
+```yaml
+services:
+  spotiflac:
+    image: ghcr.io/YOURUSER/spotiflac:latest
+    container_name: spotiflac
+    restart: unless-stopped
+    ports:
+      - "6890:6890"
+    environment:
+      - JELLYFIN_URL=http://your-jellyfin-host:8096
+      - JWT_SECRET=change-me-to-a-random-32-char-string
+    volumes:
+      - /path/to/music:/home/nonroot/Music
+      - /path/to/config:/home/nonroot/.SpotiFLAC
+```
 
-### [SpotiFLAC (Mobile)](https://github.com/zarzet/SpotiFLAC-Mobile)
+### 4. Access
 
-SpotiFLAC for Android & iOS — maintained by [@zarzet](https://github.com/zarzet)
+Open `http://your-server:6890` and log in with your Jellyfin credentials.
 
-## FAQ
+> All Jellyfin users can log in. Each user has their own watchlists, download queue and settings.
 
-### Is this software free?
+## Environment Variables
 
-_Yes. This software is completely free.
-You do not need an account, login, or subscription.
-All you need is an internet connection._
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JELLYFIN_URL` | `http://localhost:8096` | URL of your Jellyfin instance |
+| `JWT_SECRET` | *(insecure default)* | Secret key for JWT signing — **change in production** |
 
-### Can using this software get my Spotify account suspended or banned?
+## Reverse Proxy (Nginx example)
 
-_No.
-This software has no connection to your Spotify account.
-Spotify data is obtained through reverse engineering of the Spotify Web Player, not through user authentication._
+```nginx
+location / {
+    proxy_pass http://localhost:6890;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_read_timeout 0;
+}
+```
 
-### Where does the audio come from?
+## Architecture
 
-_The audio is fetched using third-party APIs._
+```
+Browser → /auth/login → Jellyfin auth → JWT (24h)
+Browser → /api/rpc + Bearer token → handlers (per-user filtered)
+                                  → BoltDB (jobs, watchlists, users)
+                                  → Download workers
+```
 
-### Why does metadata fetching sometimes fail?
+**Data isolation per user:**
+- Watchlists
+- Download queue & history  
+- Settings (quality, download path, templates)
 
-_This usually happens because your IP address has been rate-limited.
-You can wait and try again later, or use a VPN to bypass the rate limit._
+## Building from Source
 
-### Why does Windows Defender or antivirus flag or delete the file?
+```bash
+# Requirements: Go 1.21+, Bun
+cd frontend && bun install && bun run build
+cd ..
+go build -o spotiflac .
 
-_This is a false positive.
-It likely happens because the executable is compressed using UPX._
+# Or with Docker
+docker build -t spotiflac:local .
+```
 
-_If you are concerned, you can fork the repository and build the software yourself from source._
+## Data Storage
 
-### Want to support the project?
+All data is stored in the config volume:
 
-_If this software is useful and brings you value,
-consider supporting the project by buying me a coffee.
-Your support helps keep development going._
+| File | Description |
+|------|-------------|
+| `jobs.db` | Download jobs, watchlists, users (BoltDB) |
+| `history.db` | Download history |
+| `config.json` | Global settings |
 
-[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/afkarxyz)
+## Differences from original SpotiFLAC
+
+| Feature | Original | Web |
+|---------|----------|-----|
+| Interface | Desktop (Wails) | Web browser |
+| Auth | None | Jellyfin login |
+| Multi-user | ❌ | ✅ |
+| Watchlists | ✅ | ✅ |
+| M3U8 Jellyfin | ❌ | ✅ |
+| Docker | ❌ | ✅ |
+| Self-hosted | ❌ | ✅ |
 
 ## Disclaimer
 
-This project is for **educational and private use only**. The developer does not condone or encourage copyright infringement.
+This project is for **educational and private use only**.
 
-**SpotiFLAC** is a third-party tool and is not affiliated with, endorsed by, or connected to Spotify, Tidal, Qobuz, Amazon Music, Deezer or any other streaming service.
+**SpotiFLAC Web** is not affiliated with Spotify, Tidal, Qobuz, Amazon Music, Deezer, Jellyfin or any other service. You are solely responsible for ensuring your use complies with your local laws and the Terms of Service of the respective platforms.
 
-You are solely responsible for:
+## Credits
 
-1. Ensuring your use of this software complies with your local laws.
-2. Reading and adhering to the Terms of Service of the respective platforms.
-3. Any legal consequences resulting from the misuse of this tool.
-
-The software is provided "as is", without warranty of any kind. The author assumes no liability for any bans, damages, or legal issues arising from its use.
-
-## API Credits
-
-[MusicBrainz](https://musicbrainz.org) · [Spotify Lyrics API](https://github.akashrchandran.in/spotify-lyrics-api) · [LRCLIB](https://lrclib.net) · [Song.link](https://song.link) · [hifi-api](https://github.com/binimum/hifi-api) · [dabmusic.xyz](https://dabmusic.xyz) · [yoinkify.lol](https://github.com/chasemarshall/yoink)
-
-> [!TIP]
->
-> **Star Us**, You will receive all release notifications from GitHub without any delay ~
+- [afkarxyz/SpotiFLAC](https://github.com/afkarxyz/SpotiFLAC) — original project
+- [MusicBrainz](https://musicbrainz.org) · [LRCLIB](https://lrclib.net) · [Song.link](https://song.link) · [hifi-api](https://github.com/binimum/hifi-api)

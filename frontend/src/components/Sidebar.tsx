@@ -9,13 +9,16 @@ import { CoffeeIcon } from "@/components/ui/coffee";
 import { BadgeAlertIcon } from "@/components/ui/badge-alert";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { Eye , LogOut} from "lucide-react";
 import { openExternal } from "@/lib/utils";
-export type PageType = "main" | "settings" | "debug" | "audio-analysis" | "audio-converter" | "file-manager" | "about" | "history";
+export type PageType = "main" | "settings" | "debug" | "audio-analysis" | "audio-converter" | "file-manager" | "about" | "history" | "watchlist";
 interface SidebarProps {
     currentPage: PageType;
     onPageChange: (page: PageType) => void;
+    onLogout?: () => void;
+    userName?: string;
 }
-export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
+export function Sidebar({ currentPage, onPageChange, onLogout, userName }: SidebarProps) {
     return (<div className="fixed left-0 top-0 h-full w-14 bg-card border-r border-border flex flex-col items-center py-14 z-30">
       <div className="flex flex-col gap-2 flex-1">
         <Tooltip delayDuration={0}>
@@ -37,6 +40,17 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
           </TooltipTrigger>
           <TooltipContent side="right">
             <p>History</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <Button variant={currentPage === "watchlist" ? "secondary" : "ghost"} size="icon" className={`h-10 w-10 ${currentPage === "watchlist" ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`} onClick={() => onPageChange("watchlist")}>
+              <Eye size={20}/>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p>Auto-Sync Watchlist</p>
           </TooltipContent>
         </Tooltip>
 
@@ -118,5 +132,24 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
           </TooltipContent>
         </Tooltip>
       </div>
+      {(onLogout || userName) && (
+        <div className="border-t pt-2 flex flex-col gap-1 items-center">
+          {userName && (
+            <div className="text-xs text-muted-foreground truncate w-full text-center px-1" title={userName}>
+              {userName.substring(0, 8)}
+            </div>
+          )}
+          {onLogout && (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive" onClick={onLogout}>
+                  <LogOut size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right"><p>Logout</p></TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      )}
     </div>);
 }

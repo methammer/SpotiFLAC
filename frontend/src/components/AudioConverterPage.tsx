@@ -4,9 +4,9 @@ import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem, } from "@/components/ui/toggle-group";
 import { Upload, X, CheckCircle2, AlertCircle, Trash2, FileMusic, WandSparkles, } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
-import { ConvertAudio, SelectAudioFiles, SelectFolder, ListAudioFilesInDir, } from "../../wailsjs/go/main/App";
+import { FileBrowser } from "@/components/FileBrowser";
+import { ConvertAudio, SelectAudioFiles, ListAudioFilesInDir } from "@/lib/rpc";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
-import { OnFileDrop, OnFileDropOff } from "../../wailsjs/runtime/runtime";
 interface AudioFile {
     path: string;
     name: string;
@@ -95,6 +95,7 @@ export function AudioConverterPage() {
     });
     const [converting, setConverting] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
+    const [showFileBrowser, setShowFileBrowser] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const saveState = useCallback((stateToSave: {
         files: AudioFile[];
@@ -152,24 +153,20 @@ export function AudioConverterPage() {
             });
         }
     };
-    const handleSelectFolder = async () => {
+        const handleSelectFolder = () => setShowFileBrowser(true);
+    const handleFolderSelected = async (selectedFolder: string) => {
         try {
-            const selectedFolder = await SelectFolder("");
-            if (selectedFolder) {
-                const folderFiles = await ListAudioFilesInDir(selectedFolder);
-                if (folderFiles && folderFiles.length > 0) {
-                    addFiles(folderFiles.map((f) => f.path));
-                }
-                else {
-                    toast.info("No audio files found", {
-                        description: "No FLAC or MP3 files found in the selected folder.",
-                    });
-                }
+            const folderFiles = await ListAudioFilesInDir(selectedFolder);
+            if (folderFiles && folderFiles.length > 0) {
+                addFiles(folderFiles.map((f) => f.path));
+            } else {
+                toast.info("No audio files found", {
+                    description: "No FLAC or MP3 files found in the selected folder.",
+                });
             }
-        }
-        catch (err) {
-            toast.error("Folder Selection Failed", {
-                description: err instanceof Error ? err.message : "Failed to select folder",
+        } catch (err) {
+            toast.error("Failed to load folder", {
+                description: err instanceof Error ? err.message : "Unknown error",
             });
         }
     };
@@ -184,7 +181,7 @@ export function AudioConverterPage() {
                 description: "Only FLAC and MP3 files are supported as input. Please convert M4A files first.",
             });
         }
-        const GetFileSizes = (files: string[]): Promise<Record<string, number>> => (window as any)["go"]["main"]["App"]["GetFileSizes"](files);
+        const { GetFileSizes } = await import("@/lib/rpc");
         const validPaths = paths.filter((path) => {
             const ext = path.toLowerCase().slice(path.lastIndexOf("."));
             return validExtensions.includes(ext);
@@ -221,20 +218,25 @@ export function AudioConverterPage() {
             return prev;
         });
     }, []);
-    const handleFileDrop = useCallback(async (_x: number, _y: number, paths: string[]) => {
+    const handleFileDrop = useCallback(async (e: React.DragEvent) => {
+        e.preventDefault();
         setIsDragging(false);
-        if (paths.length === 0)
-            return;
-        addFiles(paths);
+        const items = Array.from(e.dataTransfer.files);
+        if (items.length === 0) return;
+        const uploadedPaths: string[] = [];
+        for (const file of items) {
+            const formData = new FormData();
+            formData.append("file", file);
+            try {
+                const res = await fetch("/api/upload", { method: "POST", body: formData });
+                const data = await res.json();
+                if (data.path) uploadedPaths.push(data.path);
+            } catch (err) {
+                console.error("Upload failed:", err);
+            }
+        }
+        if (uploadedPaths.length > 0) addFiles(uploadedPaths);
     }, [addFiles]);
-    useEffect(() => {
-        OnFileDrop((x, y, paths) => {
-            handleFileDrop(x, y, paths);
-        }, true);
-        return () => {
-            OnFileDropOff();
-        };
-    }, [handleFileDrop]);
     const removeFile = (path: string) => {
         setFiles((prev) => prev.filter((f) => f.path !== path));
     };
@@ -341,10 +343,7 @@ export function AudioConverterPage() {
         }} onDragLeave={(e) => {
             e.preventDefault();
             setIsDragging(false);
-        }} onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-        }} style={{ "--wails-drop-target": "drop" } as React.CSSProperties}>
+        }} onDrop={handleFileDrop}>
             {files.length === 0 ? (<>
                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                     <Upload className="h-8 w-8 text-primary"/>
@@ -456,5 +455,11 @@ export function AudioConverterPage() {
                 </div>
             </div>)}
         </div>
+    <FileBrowser
+        isOpen={showFileBrowser}
+        onClose={() => setShowFileBrowser(false)}
+        onSelect={handleFolderSelected}
+        title="Select Audio Folder"
+      />
     </div>);
 }

@@ -1,4 +1,4 @@
-import { GetDefaults, LoadSettings, SaveSettings as SaveToBackend } from "../../wailsjs/go/main/App";
+import { GetDefaults, LoadSettings, SaveSettings as SaveToBackend } from "@/lib/rpc";
 export type FontFamily = "google-sans" | "inter" | "poppins" | "roboto" | "dm-sans" | "plus-jakarta-sans" | "manrope" | "space-grotesk" | "noto-sans" | "nunito-sans" | "figtree" | "raleway" | "public-sans" | "outfit" | "jetbrains-mono" | "geist-sans" | "bricolage-grotesque";
 export type FolderPreset = "none" | "artist" | "album" | "year-album" | "year-artist-album" | "artist-album" | "artist-year-album" | "artist-year-nested-album" | "album-artist" | "album-artist-album" | "album-artist-year-album" | "album-artist-year-nested-album" | "year" | "year-artist" | "custom";
 export type FilenamePreset = "title" | "title-artist" | "artist-title" | "track-title" | "track-title-artist" | "track-artist-title" | "title-album-artist" | "track-title-album-artist" | "artist-album-title" | "track-dash-title" | "disc-track-title" | "disc-track-title-artist" | "custom";
@@ -30,6 +30,7 @@ export interface Settings {
     spotFetchAPIUrl: string;
     createPlaylistFolder: boolean;
     createM3u8File: boolean;
+    jellyfinMusicPath: string;
     useFirstArtistOnly: boolean;
     useSingleGenre: boolean;
     embedGenre: boolean;
@@ -83,6 +84,7 @@ export const TEMPLATE_VARIABLES = [
     { key: "{date}", description: "Release date (YYYY-MM-DD)", example: "2014-10-27" },
 ];
 function detectOS(): "Windows" | "linux/MacOS" {
+    return "linux/MacOS";
     const platform = window.navigator.platform.toLowerCase();
     if (platform.includes('win')) {
         return "Windows";
@@ -114,6 +116,7 @@ export const DEFAULT_SETTINGS: Settings = {
     spotFetchAPIUrl: "https://spotify.afkarxyz.fun/api",
     createPlaylistFolder: true,
     createM3u8File: false,
+    jellyfinMusicPath: "",
     useFirstArtistOnly: false,
     useSingleGenre: false,
     embedGenre: true
@@ -304,6 +307,9 @@ export async function loadSettings(): Promise<Settings> {
             }
             if (!('createM3u8File' in parsed)) {
                 parsed.createM3u8File = false;
+            }
+            if (!('jellyfinMusicPath' in parsed)) {
+                parsed.jellyfinMusicPath = '';
             }
             if (!('useFirstArtistOnly' in parsed)) {
                 parsed.useFirstArtistOnly = false;

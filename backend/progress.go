@@ -29,6 +29,7 @@ type DownloadItem struct {
 	Speed        float64        `json:"speed"`
 	StartTime    int64          `json:"start_time"`
 	EndTime      int64          `json:"end_time"`
+	StartedAt    int64          `json:"started_at"`
 	ErrorMessage string         `json:"error_message"`
 	FilePath     string         `json:"file_path"`
 }
@@ -49,6 +50,9 @@ var (
 	totalDownloadedLock sync.RWMutex
 	sessionStartTime    int64
 	sessionStartLock    sync.RWMutex
+
+	itemProgressMap     map[string][2]float64
+	itemProgressMapLock sync.RWMutex
 )
 
 type ProgressInfo struct {
@@ -168,8 +172,12 @@ func (pw *ProgressWriter) Write(p []byte) (int, error) {
 
 		SetDownloadProgress(mbDownloaded)
 
-		if pw.itemID != "" {
-			UpdateItemProgress(pw.itemID, mbDownloaded, speedMBps)
+		itemID := pw.itemID
+		if itemID == "" {
+			itemID = GetCurrentItemID()
+		}
+		if itemID != "" {
+			UpdateItemProgress(itemID, mbDownloaded, speedMBps)
 		}
 
 		pw.lastPrinted = pw.total
@@ -232,7 +240,6 @@ func StartDownloadItem(id string) {
 func UpdateItemProgress(id string, progress, speed float64) {
 	downloadQueueLock.Lock()
 	defer downloadQueueLock.Unlock()
-
 	for i := range downloadQueue {
 		if downloadQueue[i].ID == id {
 			downloadQueue[i].Progress = progress
@@ -240,6 +247,23 @@ func UpdateItemProgress(id string, progress, speed float64) {
 			break
 		}
 	}
+
+	itemProgressMapLock.Lock()
+	if itemProgressMap == nil {
+		itemProgressMap = make(map[string][2]float64)
+	}
+	itemProgressMap[id] = [2]float64{progress, speed}
+	itemProgressMapLock.Unlock()
+}
+
+func GetItemProgress(id string) (float64, float64) {
+	itemProgressMapLock.RLock()
+	defer itemProgressMapLock.RUnlock()
+	if itemProgressMap == nil {
+		return 0, 0
+	}
+	v := itemProgressMap[id]
+	return v[0], v[1]
 }
 
 func GetCurrentItemID() string {

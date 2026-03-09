@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Trash2, Copy, Check, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logger, type LogEntry } from "@/lib/logger";
-import { ExportFailedDownloads } from "../../wailsjs/go/main/App";
+import { ExportFailedDownloads } from "@/lib/rpc";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 const levelColors: Record<string, string> = {
     info: "text-blue-500",

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
-import { GetDownloadHistory, ClearDownloadHistory, GetPreviewURL, GetFetchHistory, DeleteDownloadHistoryItem, DeleteFetchHistoryItem, ClearFetchHistoryByType } from "../../wailsjs/go/main/App";
+import { GetDownloadHistory, ClearDownloadHistory, GetPreviewURL, GetFetchHistory, DeleteDownloadHistoryItem, DeleteFetchHistoryItem, ClearFetchHistoryByType } from "@/lib/rpc";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { openExternal } from "@/lib/utils";
 const formatDate = (timestamp: number) => {

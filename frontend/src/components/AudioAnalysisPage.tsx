@@ -1,12 +1,11 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, ArrowLeft, Trash2 } from "lucide-react";
 import { AudioAnalysis } from "@/components/AudioAnalysis";
 import { SpectrumVisualization } from "@/components/SpectrumVisualization";
 import { useAudioAnalysis } from "@/hooks/useAudioAnalysis";
-import { SelectFile } from "../../wailsjs/go/main/App";
+import { SelectFile } from "@/lib/rpc";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
-import { OnFileDrop, OnFileDropOff } from "../../wailsjs/runtime/runtime";
 interface AudioAnalysisPageProps {
     onBack?: () => void;
 }
@@ -26,27 +25,23 @@ export function AudioAnalysisPage({ onBack }: AudioAnalysisPageProps) {
             });
         }
     };
-    const handleFileDrop = useCallback(async (_x: number, _y: number, paths: string[]) => {
+    const handleFileDrop = useCallback(async (e: React.DragEvent) => {
+        e.preventDefault();
         setIsDragging(false);
-        if (paths.length === 0)
-            return;
-        const filePath = paths[0];
-        if (!filePath.toLowerCase().endsWith(".flac")) {
-            toast.error("Invalid File Type", {
-                description: "Please drop a FLAC file for analysis",
-            });
-            return;
+        const items = Array.from(e.dataTransfer.files);
+        if (items.length === 0) return;
+        const file = items[0];
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+            const res = await fetch("/api/upload", { method: "POST", body: formData });
+            const data = await res.json();
+            if (data.path) await analyzeFile(data.path);
+        } catch (err) {
+            console.error("Upload failed:", err);
         }
-        await analyzeFile(filePath);
     }, [analyzeFile]);
-    useEffect(() => {
-        OnFileDrop((x, y, paths) => {
-            handleFileDrop(x, y, paths);
-        }, true);
-        return () => {
-            OnFileDropOff();
-        };
-    }, [handleFileDrop]);
+
     const handleAnalyzeAnother = () => {
         clearResult();
     };
@@ -74,10 +69,7 @@ export function AudioAnalysisPage({ onBack }: AudioAnalysisPageProps) {
             }} onDragLeave={(e) => {
                 e.preventDefault();
                 setIsDragging(false);
-            }} onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-            }} style={{ "--wails-drop-target": "drop" } as React.CSSProperties}>
+            }} onDrop={handleFileDrop}>
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
             <Upload className="h-8 w-8 text-primary"/>
           </div>

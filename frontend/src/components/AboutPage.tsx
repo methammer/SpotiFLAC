@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { openExternal } from "@/lib/utils";
-import { GetOSInfo } from "../../wailsjs/go/main/App";
+import { GetOSInfo } from "@/lib/rpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";

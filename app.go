@@ -14,7 +14,6 @@ import (
 
 	"github.com/afkarxyz/SpotiFLAC/backend"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
@@ -234,11 +233,6 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		req.OutputDir = "."
 	} else {
 
-		if req.PlaylistName != "" {
-			sanitizedPlaylist := backend.SanitizeFilename(req.PlaylistName)
-			req.OutputDir = filepath.Join(req.OutputDir, sanitizedPlaylist)
-		}
-
 		req.OutputDir = backend.SanitizeFolderPath(req.OutputDir)
 	}
 
@@ -406,6 +400,42 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		downloader := backend.NewDeezerDownloader()
 		filename, err = downloader.Download(req.SpotifyID, req.OutputDir, req.FilenameFormat, req.PlaylistName, req.PlaylistOwner, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.CoverURL, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.EmbedMaxQualityCover, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, spotifyURL, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
 
+	case "auto":
+		order := []string{"tidal", "amazon", "qobuz"}
+		var lastErr error
+		for _, svc := range order {
+			switch svc {
+			case "tidal":
+				downloader := backend.NewTidalDownloader("")
+				if req.ServiceURL != "" {
+					filename, err = downloader.DownloadByURLWithFallback(req.ServiceURL, req.OutputDir, req.AudioFormat, req.FilenameFormat, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.UseAlbumTrackNumber, req.CoverURL, req.EmbedMaxQualityCover, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, spotifyURL, req.AllowFallback, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
+				} else {
+					filename, err = downloader.Download(req.SpotifyID, req.OutputDir, req.AudioFormat, req.FilenameFormat, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.UseAlbumTrackNumber, req.CoverURL, req.EmbedMaxQualityCover, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, spotifyURL, req.AllowFallback, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
+				}
+			case "amazon":
+				downloader := backend.NewAmazonDownloader()
+				if req.ServiceURL != "" {
+					filename, err = downloader.DownloadByURL(req.ServiceURL, req.OutputDir, req.AudioFormat, req.FilenameFormat, req.PlaylistName, req.PlaylistOwner, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.CoverURL, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.EmbedMaxQualityCover, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, spotifyURL, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
+				} else {
+					filename, err = downloader.DownloadBySpotifyID(req.SpotifyID, req.OutputDir, req.AudioFormat, req.FilenameFormat, req.PlaylistName, req.PlaylistOwner, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.CoverURL, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.EmbedMaxQualityCover, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, spotifyURL, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
+				}
+			case "qobuz":
+				isrc := <-isrcChan
+				downloader := backend.NewQobuzDownloader()
+				quality := req.AudioFormat
+				if quality == "" { quality = "6" }
+				filename, err = downloader.DownloadTrackWithISRC(isrc, req.SpotifyID, req.OutputDir, quality, req.FilenameFormat, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.UseAlbumTrackNumber, req.CoverURL, req.EmbedMaxQualityCover, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, spotifyURL, req.AllowFallback, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
+			default:
+				continue
+			}
+			if err == nil {
+				break
+			}
+			lastErr = err
+			fmt.Printf("[Auto] %s failed for %s, trying next...\n", svc, req.TrackName)
+		}
+		if err != nil { err = lastErr }
+
 	default:
 		return DownloadResponse{
 			Success: false,
@@ -549,11 +579,13 @@ func (a *App) OpenFolder(path string) error {
 }
 
 func (a *App) SelectFolder(defaultPath string) (string, error) {
-	return backend.SelectFolderDialog(a.ctx, defaultPath)
+	// Désactivé en mode web — le frontend utilise un champ texte
+	return "", nil
 }
 
 func (a *App) SelectFile() (string, error) {
-	return backend.SelectFileDialog(a.ctx)
+	// Désactivé en mode web
+	return "", nil
 }
 
 func (a *App) GetDefaults() map[string]string {
@@ -563,19 +595,87 @@ func (a *App) GetDefaults() map[string]string {
 }
 
 func (a *App) GetDownloadProgress() backend.ProgressInfo {
-	return backend.GetDownloadProgress()
+	jm := GetJobManager()
+	if jm == nil { return backend.GetDownloadProgress() }
+	jobs, _ := jm.GetAllJobs()
+	var total, done int
+	for _, j := range jobs {
+		total++
+		if j.Status == StatusDone || j.Status == StatusSkipped { done++ }
+	}
+	return backend.ProgressInfo{IsDownloading: total > 0 && done < total}
 }
 
 func (a *App) GetDownloadQueue() backend.DownloadQueueInfo {
-	return backend.GetDownloadQueue()
+	jm := GetJobManager()
+	if jm == nil { return backend.GetDownloadQueue() }
+	jobs, err := jm.GetAllJobs()
+	if err != nil { return backend.DownloadQueueInfo{} }
+	items := make([]backend.DownloadItem, 0, len(jobs))
+	var queued, completed, failed, skipped int
+	isDownloading := false
+	for _, job := range jobs {
+		ds := jobStatusToDownloadStatus(job.Status)
+		switch ds {
+		case backend.StatusQueued: queued++
+		case backend.StatusDownloading: isDownloading = true
+		case backend.StatusCompleted: completed++
+		case backend.StatusFailed: failed++
+		case backend.StatusSkipped: skipped++
+		}
+		liveProgress, liveSpeed := backend.GetItemProgress(job.ID)
+		progress := job.Progress
+		speed := liveSpeed
+		if ds == backend.StatusDownloading && liveProgress > 0 {
+			progress = liveProgress
+		}
+		items = append(items, backend.DownloadItem{
+			ID: job.ID, TrackName: job.TrackName, ArtistName: job.ArtistName,
+			AlbumName: job.AlbumName, SpotifyID: job.SpotifyID,
+			Status: ds, ErrorMessage: job.Error, FilePath: job.FilePath,
+			StartTime: job.CreatedAt.Unix(),
+			EndTime:   job.UpdatedAt.Unix(),
+			StartedAt: job.StartedAt.Unix(),
+			TotalSize: job.TotalSize,
+			Progress:  progress,
+			Speed:     speed,
+		})
+	}
+	progInfo := backend.GetDownloadProgress()
+	// TotalDownloaded = somme des fichiers complétés
+	var totalDL float64
+	for _, item := range items {
+		if item.Status == backend.StatusCompleted && item.TotalSize > 0 {
+			totalDL += item.TotalSize
+		}
+	}
+	// SessionStartTime = premier job de la queue
+	var sessionStart int64
+	for _, item := range items {
+		if sessionStart == 0 || item.StartTime < sessionStart {
+			sessionStart = item.StartTime
+		}
+	}
+	return backend.DownloadQueueInfo{
+		IsDownloading: isDownloading, Queue: items,
+		QueuedCount: queued, CompletedCount: completed,
+		FailedCount: failed, SkippedCount: skipped,
+		CurrentSpeed: progInfo.SpeedMBps,
+		TotalDownloaded: totalDL,
+		SessionStartTime: sessionStart,
+	}
 }
 
 func (a *App) ClearCompletedDownloads() {
-	backend.ClearDownloadQueue()
+	jm := GetJobManager()
+	if jm == nil { backend.ClearDownloadQueue(); return }
+	jm.ClearCompletedJobs()
 }
 
 func (a *App) ClearAllDownloads() {
-	backend.ClearAllDownloads()
+	jm := GetJobManager()
+	if jm == nil { backend.ClearAllDownloads(); return }
+	jm.ClearAllJobs()
 }
 
 func (a *App) AddToDownloadQueue(spotifyID, trackName, artistName, albumName string) string {
@@ -634,35 +734,13 @@ func (a *App) ExportFailedDownloads() (string, error) {
 	content := strings.Join(failedItems, "\n")
 	defaultFilename := fmt.Sprintf("SpotiFLAC_%s_Failed.txt", time.Now().Format("20060102_150405"))
 
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		DefaultFilename: defaultFilename,
-		Title:           "Export Failed Downloads",
-		Filters: []runtime.FileFilter{
-			{
-				DisplayName: "Text Files (*.txt)",
-				Pattern:     "*.txt",
-			},
-		},
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("failed to open save dialog: %v", err)
-	}
-
-	if path == "" {
-		return "Export cancelled", nil
-	}
-
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		return "", fmt.Errorf("failed to write file: %v", err)
-	}
-
-	return fmt.Sprintf("Successfully exported %d failed downloads to %s", count, path), nil
+	// En mode web : retourner le contenu directement (pas de dialog fichier)
+	_ = defaultFilename
+	return fmt.Sprintf("EXPORT:%s", content), nil
 }
 
 func (a *App) Quit() {
-
-	panic("quit")
+	// No-op en mode web
 }
 
 func (a *App) GetDownloadHistory() ([]backend.HistoryItem, error) {
@@ -996,19 +1074,19 @@ type DownloadFFmpegResponse struct {
 }
 
 func (a *App) DownloadFFmpeg() DownloadFFmpegResponse {
-	runtime.EventsEmit(a.ctx, "ffmpeg:status", "starting")
+	fmt.Printf("[FFmpeg] status: starting\n")
 	err := backend.DownloadFFmpeg(func(progress int) {
-		runtime.EventsEmit(a.ctx, "ffmpeg:progress", progress)
+		fmt.Printf("[FFmpeg] progress: %d\n", progress)
 	})
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "ffmpeg:status", "failed")
+		fmt.Printf("[FFmpeg] status: failed\n")
 		return DownloadFFmpegResponse{
 			Success: false,
 			Error:   err.Error(),
 		}
 	}
 
-	runtime.EventsEmit(a.ctx, "ffmpeg:status", "completed")
+	fmt.Printf("[FFmpeg] status: completed\n")
 	return DownloadFFmpegResponse{
 		Success: true,
 		Message: "FFmpeg installed successfully",
@@ -1033,11 +1111,8 @@ func (a *App) ConvertAudio(req ConvertAudioRequest) ([]backend.ConvertAudioResul
 }
 
 func (a *App) SelectAudioFiles() ([]string, error) {
-	files, err := backend.SelectMultipleFiles(a.ctx)
-	if err != nil {
-		return nil, err
-	}
-	return files, nil
+	// Désactivé en mode web
+	return nil, nil
 }
 
 func (a *App) GetFileSizes(files []string) map[string]int64 {
@@ -1106,7 +1181,8 @@ func (a *App) UploadImageBytes(filename string, base64Data string) (string, erro
 }
 
 func (a *App) SelectImageVideo() ([]string, error) {
-	return backend.SelectImageVideoDialog(a.ctx)
+	// Désactivé en mode web
+	return nil, nil
 }
 
 func (a *App) ReadImageAsBase64(filePath string) (string, error) {
@@ -1374,7 +1450,7 @@ func (a *App) GetOSInfo() (string, error) {
 	return backend.GetOSInfo()
 }
 
-func (a *App) CreateM3U8File(m3u8Name string, outputDir string, filePaths []string) error {
+func (a *App) CreateM3U8File(m3u8Name string, outputDir string, filePaths []string, jellyfinMusicPath string) error {
 	if len(filePaths) == 0 {
 		return nil
 	}
@@ -1407,18 +1483,38 @@ func (a *App) CreateM3U8File(m3u8Name string, outputDir string, filePaths []stri
 			continue
 		}
 
-		relPath, err := filepath.Rel(outputDir, path)
-		if err != nil {
-
-			relPath = path
+		var entry string
+		if jellyfinMusicPath != "" {
+			entry = strings.Replace(path, "/home/nonroot/Music", strings.TrimRight(jellyfinMusicPath, "/"), 1)
+			entry = filepath.ToSlash(entry)
+		} else {
+			relPath, err := filepath.Rel(outputDir, path)
+			if err != nil {
+				relPath = path
+			}
+			entry = filepath.ToSlash(relPath)
 		}
-
-		relPath = filepath.ToSlash(relPath)
-
-		if _, err := f.WriteString(relPath + "\n"); err != nil {
+		if _, err := f.WriteString(entry + "\n"); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func jobStatusToDownloadStatus(s JobStatus) backend.DownloadStatus {
+	switch s {
+	case StatusPending:     return backend.StatusQueued
+	case StatusDownloading: return backend.StatusDownloading
+	case StatusDone:        return backend.StatusCompleted
+	case StatusFailed:      return backend.StatusFailed
+	case StatusSkipped:     return backend.StatusSkipped
+	default:                return backend.StatusQueued
+	}
+}
+
+func (a *App) EnqueueBatch(req EnqueueBatchRequest) (EnqueueBatchResponse, error) {
+	jm := GetJobManager()
+	if jm == nil { return EnqueueBatchResponse{}, fmt.Errorf("job manager not initialized") }
+	return jm.EnqueueBatch(req)
 }

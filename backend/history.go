@@ -62,6 +62,28 @@ func InitHistoryDB(appName string) error {
 	return nil
 }
 
+
+func InitHistoryDBAt(configDir string) error {
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config dir: %w", err)
+	}
+	dbPath := filepath.Join(configDir, "history.db")
+	db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: 3 * time.Second})
+	if err != nil {
+		return err
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(historyBucket))
+		return err
+	})
+	if err != nil {
+		db.Close()
+		return err
+	}
+	historyDB = db
+	return nil
+}
+
 func CloseHistoryDB() {
 	if historyDB != nil {
 		historyDB.Close()
