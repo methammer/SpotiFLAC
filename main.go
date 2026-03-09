@@ -28,17 +28,16 @@ func main() {
 	}
 	fmt.Printf("[Main] Config dir: %s\n", configDir)
 
-	// ── History DB ────────────────────────────────────────────────────────
-	if err := backend.InitHistoryDBAt(configDir); err != nil {
-		fmt.Printf("[Main] Warning: failed to init history DB: %v\n", err)
-	}
-	defer backend.CloseHistoryDB()
 
 	// ── Job manager (workers + BoltDB) ────────────────────────────────────
 	if err := InitJobManager(configDir); err != nil {
 		fmt.Printf("FATAL: cannot init job manager: %v\n", err)
 		os.Exit(1)
 	}
+        // ── History DB (shared avec jobs.db) ─────────────────────────────────
+        if err := backend.InitHistoryDBShared(GetJobManager().db); err != nil {
+                fmt.Printf("[Main] Warning: failed to init history buckets: %v\n", err)
+        }
 	defer CloseJobManager()
 
 	// ── Auth (Jellyfin + JWT) ───────────────────────────────────────────────

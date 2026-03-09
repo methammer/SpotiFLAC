@@ -48,6 +48,7 @@ type FetchHistoryItem struct {
 var (
 	historyDB        *bolt.DB
 	historyDisabled  bool          // true si toutes les tentatives ont échoué
+	historyShared    bool          // true si DB partagée avec jobs.db
 	historyConfigDir string        // chemin défini par InitHistoryDBAt
 	historyMu        sync.Mutex    // protège l'init lazy
 )
@@ -134,6 +135,7 @@ func InitHistoryDB(appName string) error {
 }
 
 func CloseHistoryDB() {
+	if historyShared { return } // DB owned by JobManager
 	historyMu.Lock()
 	defer historyMu.Unlock()
 	if historyDB != nil {
@@ -410,4 +412,29 @@ func DeleteFetchHistoryItem(id string, appName string) error {
 		}
 		return b.Delete([]byte(id))
 	})
+}
+
+// InitHistoryDBShared réutilise une instance BoltDB existante (ex: jobs.db)
+// au lieu d'ouvrir un fichier séparé. Élimine le double flock.
+func InitHistoryDBShared(db *bolt.DB) error {
+	historyMu.Lock()
+	defer historyMu.Unlock()
+
+	if err := db.Update(func(tx *bolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists([]byte(historyBucket)); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists([]byte(fetchHistoryBucket)); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("history bucket init failed: %w", err)
+	}
+
+	historyDB = db
+	historyDisabled = false
+	historyShared = true
+	fmt.Printf("[History] Using shared DB (no separate history.db)\n")
+	return nil
 }
