@@ -31,7 +31,7 @@ A self-hosted web app to download Spotify tracks in true FLAC from Tidal, Qobuz,
 ### 2. Deploy
 
 ```bash
-git clone https://github.com/YOURUSER/spotiflac-web
+git clone https://github.com/methammer/spotiflac-web
 cd spotiflac-web
 cp docker-compose.example.yaml docker-compose.yaml
 # Edit docker-compose.yaml with your paths and settings
@@ -43,7 +43,7 @@ docker compose up -d
 ```yaml
 services:
   spotiflac:
-    image: ghcr.io/YOURUSER/spotiflac:latest
+    image: ghcr.io/methammer/spotiflac:latest
     container_name: spotiflac
     restart: unless-stopped
     ports:
@@ -125,7 +125,7 @@ All data is stored in the config volume:
 | Interface | Desktop (Wails) | Web browser |
 | Auth | None | Jellyfin login |
 | Multi-user | ❌ | ✅ |
-| Watchlists | ✅ | ✅ |
+| Watchlists | ❌ | ✅ |
 | M3U8 Jellyfin | ❌ | ✅ |
 | Docker | ❌ | ✅ |
 | Self-hosted | ❌ | ✅ |
