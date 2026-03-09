@@ -1,4 +1,4 @@
-# SpotiFLAC Web
+  # SpotiFLAC Web
 
 A self-hosted web app to download Spotify tracks in true FLAC from Tidal, Qobuz, Amazon Music & Deezer — no account required.
 
