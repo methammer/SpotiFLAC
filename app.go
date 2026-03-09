@@ -1361,3 +1361,6 @@ func (a *App) EnqueueBatch(req EnqueueBatchRequest) (EnqueueBatchResponse, error
 	}
 	return jm.EnqueueBatch(req)
 }
+
+// shutdown est appelé par main.go à l'arrêt (no-op en mode web)
+func (a *App) shutdown(ctx context.Context) {}
