@@ -929,11 +929,22 @@ func (w *Watcher) GetWatchlistHistory(watchlistID string) ([]WatchlistHistoryIte
 // M3U8 generation pour Jellyfin
 // ─────────────────────────────────────────────────────────────────────────────
 func (w *Watcher) generateM3U8ForPlaylist(pl WatchedPlaylist) {
-	app := &App{}
-	settings, err := app.LoadSettings()
-	if err != nil || settings == nil {
-		return
-	}
+        app := &App{}
+        var settings map[string]interface{}
+        if pl.UserID != "" {
+                if auth := GetAuthManager(); auth != nil {
+                        if profile, err2 := auth.GetUser(pl.UserID); err2 == nil && profile != nil && len(profile.Settings) > 0 {
+                                settings = profile.Settings
+                        }
+                }
+        }
+        if settings == nil {
+                var err error
+                settings, err = app.LoadSettings()
+                if err != nil || settings == nil {
+                        return
+                }
+        }
 	createM3u8, _ := settings["createM3u8File"].(bool)
 	if !createM3u8 {
 		return
