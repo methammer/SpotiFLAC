@@ -240,6 +240,8 @@ export function getSettings(): Settings {
     return getSettingsFromLocalStorage();
 }
 export async function loadSettings(): Promise<Settings> {
+    const token = localStorage.getItem("spotiflac_token");
+    if (!token) return getSettingsFromLocalStorage();
     try {
         const backendSettings = await LoadSettings();
         if (backendSettings) {
