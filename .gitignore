@@ -6,7 +6,6 @@ build/
 *.so
 
 # Wails Generated Files
-frontend/wailsjs/
 
 # Go
 *.test
