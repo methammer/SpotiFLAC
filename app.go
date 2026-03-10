@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -104,10 +105,34 @@ func (a *App) GetStreamingURLs(spotifyTrackID string, region string) (string, er
 	return string(jsonData), nil
 }
 
+
+// normalizeSpotifyURL supprime le préfixe intl-xx/ et le paramètre ?si=
+// ex: https://open.spotify.com/intl-fr/album/ID?si=xxx → https://open.spotify.com/album/ID
+func normalizeSpotifyURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	// Supprimer query params (si=, etc.)
+	parsed.RawQuery = ""
+	// Supprimer segment intl-xx
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	filtered := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if !strings.HasPrefix(p, "intl-") {
+			filtered = append(filtered, p)
+		}
+	}
+	parsed.Path = "/" + strings.Join(filtered, "/")
+	return parsed.String()
+}
+
 func (a *App) GetSpotifyMetadata(req SpotifyMetadataRequest) (string, error) {
 	if req.URL == "" {
 		return "", fmt.Errorf("URL parameter is required")
 	}
+	// Normaliser l'URL : supprimer intl-xx/ et ?si=... pour compatibilité API externe
+	req.URL = normalizeSpotifyURL(req.URL)
 	if req.Delay == 0 {
 		req.Delay = 1.0
 	}

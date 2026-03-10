@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -83,6 +84,92 @@ func corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local bypass — DISABLE_AUTH_ON_LAN=true
+// ─────────────────────────────────────────────────────────────────────────────
+
+func isLocalIP(r *http.Request) bool {
+	// Si la requête vient via un reverse proxy (SWAG), X-Forwarded-For est présent.
+	// Dans ce cas on refuse le bypass même si RemoteAddr est une IP privée.
+	// Accès direct (LAN, SSH tunnel localhost) → pas de X-Forwarded-For → on vérifie RemoteAddr.
+	if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Real-IP") != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	parsed := net.ParseIP(host)
+	if parsed == nil {
+		return false
+	}
+	// Loopback + RFC-1918 + Docker bridge (172.16/12 couvre 172.17.0.1)
+	privateRanges := []string{
+		"127.0.0.0/8",
+		"::1/128",
+		"10.0.0.0/8",
+		"192.168.0.0/16",
+		"172.16.0.0/12",
+	}
+	for _, cidr := range privateRanges {
+		_, network, err := net.ParseCIDR(cidr)
+		if err == nil && network.Contains(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
+func localBypassEnabled() bool {
+	return os.Getenv("DISABLE_AUTH_ON_LAN") == "true"
+}
+
+// localBypassMiddleware injecte un JWT admin synthétique si la requête vient
+// d'une IP locale et que DISABLE_AUTH_ON_LAN=true.
+// Remplace RequireAuth sur les routes protégées dans ce cas.
+func localBypassMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if localBypassEnabled() && isLocalIP(r) {
+			// Pas de token dans la requête → injecter un user admin local
+			if r.Header.Get("Authorization") == "" {
+				profile := &UserProfile{
+					ID:          "local-admin",
+					DisplayName: "Local Admin",
+					IsAdmin:     true,
+				}
+				token, err := GenerateJWT(profile)
+				if err == nil {
+					r.Header.Set("Authorization", "Bearer "+token)
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// handleLocalAuth retourne un JWT admin si DISABLE_AUTH_ON_LAN=true et IP locale.
+// Appelé par le frontend au démarrage pour bypass automatique.
+func (s *Server) handleLocalAuth(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+	if r.Method == "OPTIONS" { w.WriteHeader(http.StatusOK); return }
+	if !localBypassEnabled() || !isLocalIP(r) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "local bypass not enabled"})
+		return
+	}
+	profile := &UserProfile{ID: "local-admin", DisplayName: "Local Admin", IsAdmin: true}
+	token, err := GenerateJWT(profile)
+	if err != nil {
+		http.Error(w, `{"error":"failed to generate token"}`, http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token": token,
+		"user":  map[string]interface{}{"id": profile.ID, "display_name": profile.DisplayName, "is_admin": profile.IsAdmin},
 	})
 }
 
@@ -171,11 +258,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/auth/login", s.handleLogin)
-	// FIX #11 — handleMe wrappé par corsMiddleware + RequireAuth
-	s.mux.Handle("/auth/me", corsMiddleware(RequireAuth(http.HandlerFunc(s.handleMe))))
-	// FIX #2 — corsMiddleware devant RequireAuth pour que les OPTIONS passent sans 401
-	s.mux.Handle("/api/rpc", corsMiddleware(RequireAuth(http.HandlerFunc(s.handleRPC))))
-	s.mux.Handle("/api/upload", corsMiddleware(RequireAuth(http.HandlerFunc(s.handleUpload))))
+	s.mux.HandleFunc("/auth/local", s.handleLocalAuth)
+	s.mux.Handle("/auth/me", corsMiddleware(localBypassMiddleware(RequireAuth(http.HandlerFunc(s.handleMe)))))
+	s.mux.Handle("/api/rpc", corsMiddleware(localBypassMiddleware(RequireAuth(http.HandlerFunc(s.handleRPC)))))
+	s.mux.Handle("/api/upload", corsMiddleware(localBypassMiddleware(RequireAuth(http.HandlerFunc(s.handleUpload)))))
 
 	distFS, err := fs.Sub(frontendFS, "frontend/dist")
 	if err != nil {

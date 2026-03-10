@@ -7,7 +7,7 @@ import { getSettings, getSettingsWithDefaults, loadSettings, saveSettings, apply
 import { applyTheme } from "@/lib/themes";
 import { CheckFFmpegInstalled, OpenFolder, DownloadFFmpeg } from "@/lib/rpc";
 import { LoginPage } from "@/components/LoginPage";
-import { isAuthenticated, clearAuth, getUser } from "@/lib/auth";
+import { isAuthenticated, clearAuth, getUser, tryLocalAuth, fetchMe } from "@/lib/auth";
 import { EventsOn, EventsOff, Quit } from "../wailsjs/runtime/runtime";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { TitleBar } from "@/components/TitleBar";
@@ -68,7 +68,26 @@ function App() {
     const downloadQueue = useDownloadQueueDialog();
     const downloadProgress = useDownloadProgress();
     const [isFFmpegInstalled, setIsFFmpegInstalled] = useState<boolean | null>(null);
-    const [authed, setAuthed] = useState<boolean>(isAuthenticated());
+    const [authed, setAuthed] = useState<boolean>(false);
+    const [checkingLocalAuth, setCheckingLocalAuth] = useState<boolean>(true);
+    useEffect(() => {
+        const initAuth = async () => {
+            if (isAuthenticated()) {
+                const me = await fetchMe();
+                if (me) {
+                    setAuthed(true);
+                    setAuthUser(me);
+                    setCheckingLocalAuth(false);
+                    return;
+                }
+                clearAuth();
+            }
+            const user = await tryLocalAuth();
+            if (user) { setAuthed(true); setAuthUser(user); }
+            setCheckingLocalAuth(false);
+        };
+        initAuth();
+    }, []);
     const [authUser, setAuthUser] = useState(getUser());
     const [isInstallingFFmpeg, setIsInstallingFFmpeg] = useState(false);
     const [ffmpegInstallProgress, setFfmpegInstallProgress] = useState(0);
@@ -93,18 +112,19 @@ function App() {
             }
         };
         initSettings();
-        const checkFFmpeg = async () => {
-            if (!isAuthenticated()) return;
-            try {
-                const installed = await CheckFFmpegInstalled();
-                setIsFFmpegInstalled(installed);
-            }
-            catch (err) {
-                console.error("Failed to check FFmpeg:", err);
-                setIsFFmpegInstalled(false);
-            }
-        };
-        checkFFmpeg();
+        // FFmpeg check lancé seulement si authed pour éviter le dialog sur 401
+        if (authed) {
+            const checkFFmpeg = async () => {
+                try {
+                    const installed = await CheckFFmpegInstalled();
+                    setIsFFmpegInstalled(installed);
+                } catch (err) {
+                    console.error("Failed to check FFmpeg:", err);
+                    setIsFFmpegInstalled(false);
+                }
+            };
+            checkFFmpeg();
+        }
         const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
         const handleChange = () => {
             const currentSettings = getSettings();
@@ -124,7 +144,7 @@ function App() {
             mediaQuery.removeEventListener("change", handleChange);
             window.removeEventListener("scroll", handleScroll);
         };
-    }, []);
+    }, [authed]);
     const handleEnableSpotFetchApi = async () => {
         try {
             await updateSettings({ useSpotFetchAPI: true });
@@ -485,6 +505,9 @@ function App() {
                 </>);
         }
     };
+    if (checkingLocalAuth) {
+        return <div className="min-h-screen flex items-center justify-center bg-background"><div className="text-muted-foreground text-sm">Connecting...</div></div>;
+    }
     if (!authed) {
         return <LoginPage onLogin={() => {
         setAuthed(true);
