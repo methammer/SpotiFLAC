@@ -2,10 +2,8 @@ name: Check Upstream Changes
 
 on:
   schedule:
-    # Chaque lundi à 8h UTC
     - cron: '0 8 * * 1'
   workflow_dispatch:
-    # Déclenchement manuel depuis l'interface GitHub
 
 jobs:
   check-upstream:
@@ -28,22 +26,28 @@ jobs:
       - name: Check for changes in tracked files
         id: check
         run: |
-          # Fichiers à surveiller (pure upstream)
+          # ── Fichiers PURE UPSTREAM ──────────────────────────────────────────
+          # Existent dans upstream ET chez nous, peu ou pas modifiés.
+          # deezer.go / downloader.go / uploader.go / spotify.go exclus intentionnellement.
           TRACKED_FILES=(
             "backend/tidal.go"
-            "backend/deezer.go"
             "backend/amazon.go"
             "backend/qobuz.go"
-            "backend/spotify.go"
             "backend/metadata.go"
             "backend/musicbrainz.go"
             "backend/songlink.go"
-            "backend/uploader.go"
             "backend/cover.go"
             "backend/lyrics.go"
-            "backend/downloader.go"
           )
 
+          # ── Fichiers NEW UPSTREAM ───────────────────────────────────────────
+          # Existent dans upstream mais pas (ou différemment nommés) chez nous.
+          # Intégration manuelle uniquement.
+          NEW_UPSTREAM_FILES=(
+            "backend/spotfetch.go"
+          )
+
+          # ── Fichiers MIXED ──────────────────────────────────────────────────
           MIXED_FILES=(
             "app.go"
             "go.mod"
@@ -65,13 +69,14 @@ jobs:
             exit 0
           fi
 
-          # Construire le rapport de diff
           CHANGED_FILES=""
           UNCHANGED_FILES=""
           MIXED_CHANGED=""
+          NEW_FILES_STATUS=""
 
           for FILE in "${TRACKED_FILES[@]}"; do
             if ! git show "upstream/main:${FILE}" &>/dev/null 2>&1; then
+              CHANGED_FILES="${CHANGED_FILES}\n- \`${FILE}\` ⚠️ **disparu de upstream** (supprimé ou renommé ?)"
               continue
             fi
             DIFF=$(git diff HEAD upstream/main -- "${FILE}" 2>/dev/null || true)
@@ -80,27 +85,31 @@ jobs:
               REMOVED=$(echo "$DIFF" | grep -c '^-[^-]' || true)
               CHANGED_FILES="${CHANGED_FILES}\n- \`${FILE}\` (+${ADDED} / -${REMOVED} lignes)"
             else
-              UNCHANGED_FILES="${UNCHANGED_FILES}\n- \`${FILE}\`"
+              UNCHANGED_FILES="${UNCHANGED_FILES}\n- \`${FILE}\` ✓"
+            fi
+          done
+
+          for FILE in "${NEW_UPSTREAM_FILES[@]}"; do
+            if git show "upstream/main:${FILE}" &>/dev/null 2>&1; then
+              LAST_COMMIT=$(git log upstream/main --oneline -1 -- "${FILE}" 2>/dev/null || true)
+              NEW_FILES_STATUS="${NEW_FILES_STATUS}\n- \`${FILE}\` — ${LAST_COMMIT}"
             fi
           done
 
           for FILE in "${MIXED_FILES[@]}"; do
-            if ! git show "upstream/main:${FILE}" &>/dev/null 2>&1; then
-              continue
-            fi
-            DIFF=$(git diff HEAD upstream/main -- "${FILE}" 2>/dev/null || true)
-            if [[ -n "$DIFF" ]]; then
-              ADDED=$(echo "$DIFF" | grep -c '^+[^+]' || true)
-              REMOVED=$(echo "$DIFF" | grep -c '^-[^-]' || true)
-              MIXED_CHANGED="${MIXED_CHANGED}\n- \`${FILE}\` (+${ADDED} / -${REMOVED} lignes) ⚠️ merge manuel"
+            if git show "upstream/main:${FILE}" &>/dev/null 2>&1; then
+              DIFF=$(git diff HEAD upstream/main -- "${FILE}" 2>/dev/null || true)
+              if [[ -n "$DIFF" ]]; then
+                ADDED=$(echo "$DIFF" | grep -c '^+[^+]' || true)
+                REMOVED=$(echo "$DIFF" | grep -c '^-[^-]' || true)
+                MIXED_CHANGED="${MIXED_CHANGED}\n- \`${FILE}\` (+${ADDED} / -${REMOVED} lignes)"
+              fi
             fi
           done
 
-          # Commits récents upstream
-          RECENT_COMMITS=$(git log "${COMMON_ANCESTOR}..upstream/main" --oneline | head -10)
+          RECENT_COMMITS=$(git log "${COMMON_ANCESTOR}..upstream/main" --oneline | head -15)
 
-          # Écrire le rapport dans un fichier (pour éviter les problèmes de quotes dans $GITHUB_OUTPUT)
-          cat > /tmp/issue_body.md << EOF
+          cat > /tmp/issue_body.md << MDEOF
           ## 🔄 Changements détectés dans [afkarxyz/SpotiFLAC](https://github.com/afkarxyz/SpotiFLAC)
 
           **Upstream HEAD :** \`${UPSTREAM_HEAD:0:8}\` — ${UPSTREAM_DATE:0:10}
@@ -116,37 +125,52 @@ jobs:
 
           ---
 
-          ### Fichiers PURE UPSTREAM modifiés (action requise)
+          ### 🔴 Fichiers PURE UPSTREAM modifiés
+          > Checkout direct si pas de conflits avec notre code
+
           $(echo -e "$CHANGED_FILES")
 
-          ### Fichiers MIXED modifiés (inspection manuelle)
+          ### ✅ Fichiers PURE UPSTREAM inchangés
+          $(echo -e "$UNCHANGED_FILES")
+
+          ### 🟡 Fichiers MIXED modifiés
+          > Inspection manuelle hunk par hunk requise
+
           $(echo -e "$MIXED_CHANGED")
+
+          ### 🔵 Fichiers NEW UPSTREAM à surveiller
+          > Existent upstream mais pas localement sous ce nom — intégration manuelle
+
+          $(echo -e "$NEW_FILES_STATUS")
+
+          > **Note :** \`backend/spotfetch.go\` upstream = notre \`backend/spotify_metadata.go\`
+          > Comparer les fonctions \`Filter*\` si des changements ont eu lieu.
 
           ---
 
           ### Actions recommandées
 
           \`\`\`bash
-          # 1. Fetch upstream
+          # 1. Fetch et lancer le script local
           git fetch upstream
+          ./check-upstream.sh --verbose
 
-          # 2. Voir les diffs
+          # 2. Voir le diff d'un fichier
           git diff HEAD upstream/main -- backend/tidal.go | less
 
           # 3. Intégrer un fichier pure upstream
           git checkout upstream/main -- backend/FICHIER.go
           git commit -m "chore: sync backend/FICHIER.go from upstream $(date +%Y-%m-%d)"
 
-          # 4. Ou lancer le script local
-          ./check-upstream.sh --verbose
+          # 4. Voir un fichier upstream sans l'appliquer
+          git show upstream/main:backend/spotfetch.go | less
           \`\`\`
 
           ---
-          *Issue créée automatiquement par le workflow [upstream-check.yml](../.github/workflows/upstream-check.yml)*
-          EOF
+          *Issue créée automatiquement — [upstream-check.yml](../.github/workflows/upstream-check.yml)*
+          MDEOF
 
           echo "has_changes=true" >> $GITHUB_OUTPUT
-          echo "changed_count=$(echo -e "$CHANGED_FILES" | grep -c '^\-' || true)" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Issue if changes detected
         if: steps.check.outputs.has_changes == 'true'
@@ -156,7 +180,6 @@ jobs:
             const fs = require('fs');
             const body = fs.readFileSync('/tmp/issue_body.md', 'utf8');
 
-            // Vérifier si une issue similaire est déjà ouverte
             const existingIssues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -177,18 +200,16 @@ jobs:
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[Upstream Sync] ${${{ steps.check.outputs.commit_count }}} nouveaux commits — upstream/${{ steps.check.outputs.upstream_head }} (${${{ steps.check.outputs.upstream_date }}})`,
+              title: `[Upstream Sync] ${{ steps.check.outputs.commit_count }} commits — upstream/${{ steps.check.outputs.upstream_head }} (${{ steps.check.outputs.upstream_date }})`,
               body: body,
               labels: ['upstream-sync']
             });
 
-            console.log('Issue créée avec succès.');
-
       - name: Summary
         run: |
           if [[ "${{ steps.check.outputs.has_changes }}" == "false" ]]; then
-            echo "✅ Aucun changement upstream détecté. Tout est à jour."
+            echo "✅ Aucun changement upstream. Tout est à jour."
           else
-            echo "⚠️ Changements détectés ! Issue GitHub créée."
+            echo "⚠️ Changements détectés. Issue GitHub créée."
             echo "Commits non intégrés : ${{ steps.check.outputs.commit_count }}"
           fi
