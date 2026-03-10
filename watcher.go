@@ -369,6 +369,9 @@ func (w *Watcher) AddWatchlist(req AddWatchlistRequest) (AddWatchlistResponse, e
 	fmt.Printf("[Watcher] Added watchlist: %s (%d tracks, every %dh)\n",
 		name, len(tracks), req.IntervalHours)
 
+	// Sync en arrière-plan pour mettre à jour le nom si extractPlaylistName a échoué
+	go w.syncPlaylist(*pl)
+
 	return AddWatchlistResponse{
 		ID:      pl.ID,
 		Name:    name,
