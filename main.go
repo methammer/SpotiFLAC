@@ -71,7 +71,8 @@ func main() {
 		fmt.Printf("[Main] SpotiFLAC listening on http://0.0.0.0:%s\n", port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("FATAL: server error: %v\n", err)
-			os.Exit(1)
+			// FIX #3 — signal propre au lieu de os.Exit pour respecter les defer (CloseJobManager, CloseWatcher)
+			stop <- syscall.SIGTERM
 		}
 	}()
 
@@ -82,7 +83,7 @@ func main() {
 	defer cancel()
 	httpServer.Shutdown(ctx)
 
-	app.shutdown(context.Background())
+	app.shutdown(ctx)
 	fmt.Println("[Main] Bye.")
 }
 
