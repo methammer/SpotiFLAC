@@ -519,7 +519,7 @@ function App() {
 
     return (<TooltipProvider>
         <div className="min-h-screen bg-background flex flex-col">
-            <TitleBar />
+            <TitleBar onLogout={() => { clearAuth(); setAuthed(false); setAuthUser(null); }} userName={authUser?.display_name} />
             <Sidebar currentPage={currentPage} onPageChange={handlePageChange} onLogout={() => { clearAuth(); setAuthed(false); setAuthUser(null); }} userName={authUser?.display_name}/>
 
 
