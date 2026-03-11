@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -21,7 +22,7 @@ import (
 
 var (
 	jellyfinURL = getEnv("JELLYFIN_URL", "http://localhost:8096")
-	jwtSecret   = []byte(getEnv("JWT_SECRET", "spotiflac-default-secret-change-me"))
+	jwtSecret   = loadOrGenerateJWTSecret()
 )
 
 func getEnv(key, fallback string) string {
@@ -30,6 +31,39 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
+// loadOrGenerateJWTSecret returns the JWT secret from env, persisted file, or generates a new one.
+func loadOrGenerateJWTSecret() []byte {
+	// 1. Variable d'environnement → priorité absolue
+	if v := os.Getenv("JWT_SECRET"); v != "" {
+		return []byte(v)
+	}
+	// 2. Fichier persisté dans le dossier config
+	configDir, err := getConfigDir()
+	if err == nil {
+		secretFile := configDir + "/jwt_secret"
+		if data, err := os.ReadFile(secretFile); err == nil && len(data) > 0 {
+			return data
+		}
+		// 3. Générer un nouveau secret et le persister
+		secret := generateRandomSecret()
+		_ = os.MkdirAll(configDir, 0700)
+		_ = os.WriteFile(secretFile, secret, 0600)
+		return secret
+	}
+	// 4. Fallback
+	return generateRandomSecret()
+}
+
+func generateRandomSecret() []byte {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic("failed to generate JWT secret: " + err.Error())
+	}
+	dst := make([]byte, base64.RawURLEncoding.EncodedLen(len(b)))
+	base64.RawURLEncoding.Encode(dst, b)
+	return dst
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UserProfile
