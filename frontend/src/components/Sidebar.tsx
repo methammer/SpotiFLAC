@@ -9,7 +9,7 @@ import { CoffeeIcon } from "@/components/ui/coffee";
 import { BadgeAlertIcon } from "@/components/ui/badge-alert";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { Eye , LogOut} from "lucide-react";
+import { Eye } from "lucide-react";
 import { openExternal } from "@/lib/utils";
 export type PageType = "main" | "settings" | "debug" | "audio-analysis" | "audio-converter" | "file-manager" | "about" | "history" | "watchlist";
 interface SidebarProps {
@@ -132,24 +132,6 @@ export function Sidebar({ currentPage, onPageChange, onLogout, userName }: Sideb
           </TooltipContent>
         </Tooltip>
       </div>
-      {(onLogout || userName) && (
-        <div className="border-t pt-2 flex flex-col gap-1 items-center">
-          {userName && (
-            <div className="text-xs text-muted-foreground truncate w-full text-center px-1" title={userName}>
-              {userName.substring(0, 8)}
-            </div>
-          )}
-          {onLogout && (
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive" onClick={onLogout}>
-                  <LogOut size={16} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right"><p>Logout</p></TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      )}
+
     </div>);
 }
