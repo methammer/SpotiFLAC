@@ -214,7 +214,7 @@ export function WatchlistPage() {
     const s = stats[list.id];
     const total = list.track_ids?.length ?? 0;
     const present = s ? (s.downloaded + s.skipped) : 0;
-    const absent = Math.max(0, total - present);
+    const absent = s ? s.failed : 0;
     const sizeMB = s ? s.total_size_mb : 0;
     return { total, present, absent, sizeMB };
   };
@@ -297,12 +297,12 @@ export function WatchlistPage() {
                     <span className="text-foreground font-medium">{total} tracks</span>
                     <span className="text-green-500 flex items-center gap-1">
                       <CheckCircle2 className="h-3 w-3" />
-                      {present} present
+                      {present}
                     </span>
                     {absent > 0 && (
-                      <span className="text-muted-foreground flex items-center gap-1">
+                      <span className="text-red-500 flex items-center gap-1">
                         <XCircle className="h-3 w-3" />
-                        {absent} absent
+                        {absent}
                       </span>
                     )}
                     {sizeMB > 0 && (
