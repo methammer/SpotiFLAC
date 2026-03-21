@@ -47,6 +47,16 @@ type TrackAvailability struct {
 	DeezerURL string `json:"deezer_url,omitempty"`
 }
 
+var globalSongLinkClient *SongLinkClient
+
+// GetSongLinkClient retourne le singleton global (thread-safe via init)
+func GetSongLinkClient() *SongLinkClient {
+	if globalSongLinkClient == nil {
+		globalSongLinkClient = NewSongLinkClient()
+	}
+	return globalSongLinkClient
+}
+
 func NewSongLinkClient() *SongLinkClient {
 	return &SongLinkClient{
 		client: &http.Client{
@@ -181,7 +191,9 @@ func (s *SongLinkClient) GetAllURLsFromSpotify(spotifyTrackID string, region str
 }
 
 func (s *SongLinkClient) CheckTrackAvailability(spotifyTrackID string) (*TrackAvailability, error) {
-
+	if s.isRateLimited() {
+		return nil, fmt.Errorf("songlink rate limited, skipping call")
+	}
 	now := time.Now()
 	if now.Sub(s.apiCallResetTime) >= time.Minute {
 		s.apiCallCount = 0
@@ -327,7 +339,9 @@ func checkQobuzAvailability(isrc string) bool {
 }
 
 func (s *SongLinkClient) GetDeezerURLFromSpotify(spotifyTrackID string) (string, error) {
-
+	if s.isRateLimited() {
+		return "", fmt.Errorf("songlink rate limited, skipping call")
+	}
 	now := time.Now()
 	if now.Sub(s.apiCallResetTime) >= time.Minute {
 		s.apiCallCount = 0

@@ -20,7 +20,7 @@ import (
 
 const (
 	jobWorkers    = 1         // workers de téléchargement en parallèle
-	songLinkDelay = 3000      // ms entre deux requêtes song.link
+	songLinkDelay = 6500      // ms entre deux requêtes song.link (max 9/min)
 	dbFile        = "jobs.db" // chemin relatif au configDir
 )
 
@@ -189,7 +189,7 @@ func InitJobManager(configDir string) error {
 			db:             db,
 			queue:          make(chan string, 10000),
 			songLinkSem:    make(chan struct{}, 1),
-			songLinkClient: backend.NewSongLinkClient(),
+			songLinkClient: backend.GetSongLinkClient(),
 			ctx:            ctx,
 			cancel:         cancel,
 		}
@@ -367,24 +367,6 @@ func (jm *JobManager) processJob(jobID string) {
 	streamingURLs := jm.getStreamingURLs(job)
 
 	req := jm.buildDownloadRequest(job, outputDir, streamingURLs)
-	// Si Songlink a échoué (streamingURLs nil), forcer un service sans Songlink
-	if streamingURLs == nil && (req.Service == "auto" || req.Service == "tidal" || req.Service == "") {
-		fmt.Printf("[Jobs] Songlink unavailable for %s, using Deezer/Amazon fallback\n", job.TrackName)
-		req.Service = "auto" // forcer le mode auto pour utiliser AutoOrder
-		origOrder := strings.Split(req.AutoOrder, "-")
-		var noSonglink []string
-		for _, svc := range origOrder {
-			if svc == "amazon" {
-				noSonglink = append(noSonglink, svc)
-			}
-		}
-		if len(noSonglink) > 0 {
-			req.AutoOrder = strings.Join(noSonglink, "-")
-		} else {
-			req.AutoOrder = "amazon"
-		}
-	}
-
 	app := &App{}
 	resp, err := app.DownloadTrack(req)
 	if err != nil || !resp.Success {

@@ -95,8 +95,11 @@ func (a *App) GetStreamingURLs(spotifyTrackID string, region string) (string, er
 		return "", fmt.Errorf("spotify track ID is required")
 	}
 	fmt.Printf("[GetStreamingURLs] Called for track ID: %s, Region: %s\n", spotifyTrackID, region)
-	client := backend.NewSongLinkClient()
-	urls, err := client.GetAllURLsFromSpotify(spotifyTrackID, region)
+	jm := GetJobManager()
+	if jm == nil {
+		return "", fmt.Errorf("job manager not initialized")
+	}
+	urls, err := jm.songLinkClient.GetAllURLsFromSpotify(spotifyTrackID, region)
 	if err != nil {
 		return "", err
 	}
@@ -340,9 +343,14 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 				isrcChan <- req.ISRC
 				return
 			}
-			client := backend.NewSongLinkClient()
-			isrc, _ := client.GetISRC(req.SpotifyID)
-			isrcChan <- isrc
+			// Utiliser le singleton JobManager pour partager le rate limiter
+			jm := GetJobManager()
+			if jm != nil {
+				isrc, _ := jm.songLinkClient.GetISRC(req.SpotifyID)
+				isrcChan <- isrc
+			} else {
+				isrcChan <- ""
+			}
 		}()
 	} else {
 		close(lyricsChan)
@@ -990,8 +998,11 @@ func (a *App) CheckTrackAvailability(spotifyTrackID string) (string, error) {
 	if spotifyTrackID == "" {
 		return "", fmt.Errorf("spotify track ID is required")
 	}
-	client := backend.NewSongLinkClient()
-	availability, err := client.CheckTrackAvailability(spotifyTrackID)
+	jm := GetJobManager()
+	if jm == nil {
+		return "", fmt.Errorf("job manager not initialized")
+	}
+	availability, err := jm.songLinkClient.CheckTrackAvailability(spotifyTrackID)
 	if err != nil {
 		return "", err
 	}

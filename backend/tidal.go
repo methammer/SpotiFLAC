@@ -516,7 +516,7 @@ func (t *TidalDownloader) DownloadByURL(tidalURL, outputDir, quality, filenameFo
 			if len(parts) > 0 {
 				sID := strings.Split(parts[len(parts)-1], "?")[0]
 				if sID != "" {
-					client := NewSongLinkClient()
+					client := GetSongLinkClient()
 					if val, err := client.GetISRC(sID); err == nil {
 						isrc = val
 					}
@@ -674,7 +674,7 @@ func (t *TidalDownloader) DownloadByURLWithFallback(tidalURL, outputDir, quality
 			if len(parts) > 0 {
 				sID := strings.Split(parts[len(parts)-1], "?")[0]
 				if sID != "" {
-					client := NewSongLinkClient()
+					client := GetSongLinkClient()
 					if val, err := client.GetISRC(sID); err == nil {
 						isrc = val
 					}
