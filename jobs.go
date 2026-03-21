@@ -19,8 +19,8 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 
 const (
-	jobWorkers    = 3         // workers de téléchargement en parallèle
-	songLinkDelay = 600       // ms entre deux requêtes song.link
+	jobWorkers    = 1         // workers de téléchargement en parallèle
+	songLinkDelay = 3000      // ms entre deux requêtes song.link
 	dbFile        = "jobs.db" // chemin relatif au configDir
 )
 
@@ -135,13 +135,14 @@ type EnqueueBatchResponse struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type JobManager struct {
-	db          *bolt.DB
-	queue       chan string // job IDs à traiter
-	songLinkSem chan struct{}
-	wg          sync.WaitGroup
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.RWMutex
+	db             *bolt.DB
+	queue          chan string // job IDs à traiter
+	songLinkSem    chan struct{}
+	songLinkClient *backend.SongLinkClient
+	wg             sync.WaitGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.RWMutex
 	// FIX #1 — guard contre double CloseJobManager
 	closed     bool
 	closedOnce sync.Once
@@ -185,11 +186,12 @@ func InitJobManager(configDir string) error {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		jm := &JobManager{
-			db:          db,
-			queue:       make(chan string, 10000),
-			songLinkSem: make(chan struct{}, 1),
-			ctx:         ctx,
-			cancel:      cancel,
+			db:             db,
+			queue:          make(chan string, 10000),
+			songLinkSem:    make(chan struct{}, 1),
+			songLinkClient: backend.NewSongLinkClient(),
+			ctx:            ctx,
+			cancel:         cancel,
 		}
 
 		globalJobManager = jm
@@ -439,10 +441,23 @@ func (jm *JobManager) getStreamingURLs(job *Job) map[string]string {
 		<-jm.songLinkSem
 	}()
 
-	client := backend.NewSongLinkClient()
+	client := jm.songLinkClient
 	urls, err := client.GetAllURLsFromSpotify(job.SpotifyID, s.Region)
+	needsFallback := err != nil || (urls != nil && urls.TidalURL == "" && (s.Service == "tidal" || s.Service == "auto"))
 	if err != nil {
 		fmt.Printf("[Jobs] song.link failed for %s: %v\n", job.TrackName, err)
+	}
+	if needsFallback && job.TrackName != "" && job.ArtistName != "" {
+		fmt.Printf("[Jobs] Trying Deezer fallback for %s - %s\n", job.TrackName, job.ArtistName)
+		if fallback, ferr := backend.GetDeezerSearchFallback(job.TrackName, job.ArtistName); ferr == nil {
+			urls = fallback
+		} else {
+			fmt.Printf("[Jobs] Deezer fallback failed for %s: %v\n", job.TrackName, ferr)
+			if err != nil {
+				return nil
+			}
+		}
+	} else if err != nil {
 		return nil
 	}
 

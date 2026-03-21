@@ -953,7 +953,9 @@ func getDownloadURLRotated(apis []string, trackID int64, quality string) (string
 		}
 
 		url := fmt.Sprintf("%s/track/?id=%d&quality=%s", apiURL, trackID, quality)
-		resp, err := client.Get(url)
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+		resp, err := client.Do(req)
 		if err != nil {
 			lastError = err
 			errors = append(errors, fmt.Sprintf("%s: %v", apiURL, err))
