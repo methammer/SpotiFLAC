@@ -487,7 +487,15 @@ func (s *SongLinkClient) GetISRC(spotifyID string) (string, error) {
 // Cherche la track via l'API Deezer publique (pas de clé requise)
 // et retourne l'ISRC pour que qobuz.go puisse télécharger
 func GetDeezerSearchFallback(trackName, artistName string) (*SongLinkURLs, error) {
-	query := url.QueryEscape(trackName + " " + artistName)
+	// Premier artiste seulement pour éviter les échecs sur les collaborations
+	cleanArtist := artistName
+	for _, sep := range []string{", ", " & ", " feat.", " ft.", " featuring "} {
+		if idx := strings.Index(cleanArtist, sep); idx > 0 {
+			cleanArtist = strings.TrimSpace(cleanArtist[:idx])
+			break
+		}
+	}
+	query := url.QueryEscape(trackName + " " + cleanArtist)
 	searchURL := fmt.Sprintf("https://api.deezer.com/search?q=%s&limit=1", query)
 
 	client := NewHTTPClient(10 * time.Second)
