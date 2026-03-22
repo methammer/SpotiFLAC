@@ -576,21 +576,31 @@ func (jm *JobManager) buildDownloadRequest(job *Job, outputDir string, streaming
 	}
 
 	serviceURL := ""
-	isrcOnly := false
 	if streamingURLs != nil {
 		if service == "tidal" || service == "auto" {
 			serviceURL = streamingURLs["tidal_url"]
 		} else if service == "amazon" {
 			serviceURL = streamingURLs["amazon_url"]
 		}
-		// Si on a seulement l'ISRC (fallback Deezer), forcer Qobuz
-		if serviceURL == "" && streamingURLs["isrc"] != "" && service != "qobuz" {
-			fmt.Printf("[Jobs] Only ISRC available for %s, switching to Qobuz\n", job.TrackName)
-			service = "qobuz"
-			isrcOnly = true
+		// Si pas d'URL Tidal/Amazon mais on a un ISRC, chercher Tidal via ISRC
+		if serviceURL == "" && streamingURLs["isrc"] != "" {
+			isrc := streamingURLs["isrc"]
+			tidalID, tidalAPI, err := backend.GetTidalIDFromISRC(job.TrackName, job.ArtistName, isrc)
+			if err == nil && tidalID > 0 {
+				tidalURL := fmt.Sprintf("https://tidal.com/track/%d", tidalID)
+				streamingURLs["tidal_url"] = tidalURL
+				streamingURLs["tidal_api"] = tidalAPI
+				serviceURL = tidalURL
+				fmt.Printf("[Jobs] Tidal found via ISRC for %s: ID=%d\n", job.TrackName, tidalID)
+				if service != "tidal" && service != "auto" {
+					service = "tidal"
+				}
+			} else if service != "qobuz" {
+				service = "qobuz"
+				fmt.Printf("[Jobs] Only ISRC available for %s, switching to Qobuz\n", job.TrackName)
+			}
 		}
 	}
-	_ = isrcOnly
 
 	// Le check Songlink est fait dans processJob avant cet appel
 

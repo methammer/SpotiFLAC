@@ -1051,3 +1051,50 @@ func buildTidalFilename(title, artist, album, albumArtist, releaseDate string, t
 
 	return filename + ".flac"
 }
+
+// GetTidalIDFromISRC cherche un track Tidal via ISRC sur les APIs monochrome
+func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, error) {
+	apis := []string{
+		"https://eu-central.monochrome.tf",
+		"https://us-west.monochrome.tf",
+		"https://api.monochrome.tf",
+		"https://hifi-one.spotisaver.net",
+	}
+
+	query := url.QueryEscape(trackName + " " + artistName)
+
+	for _, api := range apis {
+		searchURL := fmt.Sprintf("%s/search?s=%s", api, query)
+		client := NewHTTPClient(10 * time.Second)
+		resp, err := client.Get(searchURL)
+		if err != nil {
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != 200 {
+			continue
+		}
+
+		var result struct {
+			Data struct {
+				Items []struct {
+					ID   int64  `json:"id"`
+					ISRC string `json:"isrc"`
+				} `json:"items"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			continue
+		}
+
+		for _, item := range result.Data.Items {
+			if item.ISRC == isrc {
+				fmt.Printf("[Tidal] Found track by ISRC %s: ID=%d (via %s)\n", isrc, item.ID, api)
+				return item.ID, api, nil
+			}
+		}
+	}
+	return 0, "", fmt.Errorf("tidal track not found for ISRC: %s", isrc)
+}
