@@ -366,6 +366,17 @@ func (jm *JobManager) processJob(jobID string) {
 
 	streamingURLs := jm.getStreamingURLs(job)
 
+	// Fail immédiatement si Songlink indisponible (évite double appel dans les downloaders)
+	if streamingURLs == nil && (job.Settings.Service == "tidal" || job.Settings.Service == "amazon" || job.Settings.Service == "auto" || job.Settings.Service == "") {
+		fmt.Printf("[Jobs] No streaming URL for %s (Songlink unavailable)\n", job.TrackName)
+		job.Status = StatusFailed
+		job.Error = "songlink unavailable: no streaming URL"
+		job.UpdatedAt = time.Now()
+		jm.saveJob(job)
+		backend.FailDownloadItem(job.ID, job.Error)
+		return
+	}
+
 	req := jm.buildDownloadRequest(job, outputDir, streamingURLs)
 	app := &App{}
 	resp, err := app.DownloadTrack(req)
@@ -555,17 +566,7 @@ func (jm *JobManager) buildDownloadRequest(job *Job, outputDir string, streaming
 		}
 	}
 
-	// Si Songlink a échoué et que le service nécessite une URL (tidal/amazon/auto), fail immédiatement
-	// sans lancer un 2ème appel Songlink dans les downloaders
-	if serviceURL == "" && (service == "tidal" || service == "amazon" || service == "auto") {
-		fmt.Printf("[Jobs] No streaming URL for %s (Songlink unavailable), skipping\n", job.TrackName)
-		job.Status = StatusFailed
-		job.Error = "songlink unavailable: no streaming URL"
-		job.UpdatedAt = time.Now()
-		jm.saveJob(job)
-		backend.FailDownloadItem(job.ID, job.Error)
-		return
-	}
+	// Le check Songlink est fait dans processJob avant cet appel
 
 	artist := job.ArtistName
 	albumArtist := job.AlbumArtist
