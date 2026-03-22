@@ -437,41 +437,12 @@ func (jm *JobManager) getStreamingURLs(job *Job) map[string]string {
 		return nil
 	}
 
-	// FIX #2 — select avec ctx.Done() pour ne pas bloquer le shutdown
-	select {
-	case jm.songLinkSem <- struct{}{}:
-		// slot acquis
-	case <-jm.ctx.Done():
-		fmt.Printf("[Jobs] song.link skipped for %s (shutdown)\n", job.TrackName)
-		return nil
+	// Amazon : seul Songlink fournit amazon_url
+	if s.Service == "amazon" {
+		return jm.getStreamingURLsViaSonglink(job)
 	}
 
-	defer func() {
-		time.Sleep(time.Duration(songLinkDelay) * time.Millisecond)
-		<-jm.songLinkSem
-	}()
-
-	client := jm.songLinkClient
-
-	// Songlink disponible → essayer en priorité
-	if !client.IsRateLimited() {
-		urls, err := client.GetAllURLsFromSpotify(job.SpotifyID, s.Region)
-		if err == nil && urls != nil {
-			result := make(map[string]string)
-			data, _ := json.Marshal(urls)
-			json.Unmarshal(data, &result)
-			if result["tidal_url"] != "" || result["amazon_url"] != "" || result["isrc"] != "" {
-				return result
-			}
-		}
-		if err != nil {
-			fmt.Printf("[Jobs] song.link failed for %s: %v\n", job.TrackName, err)
-		}
-	} else {
-		fmt.Printf("[Jobs] Songlink rate-limited, using Deezer fallback for %s\n", job.TrackName)
-	}
-
-	// Fallback : api.deezer.com (public, sans auth) → ISRC pour Qobuz
+	// 1. Deezer en priorité (API publique, pas de rate-limit)
 	if job.TrackName != "" && job.ArtistName != "" {
 		if fallback, ferr := backend.GetDeezerSearchFallback(job.TrackName, job.ArtistName); ferr == nil && fallback != nil {
 			result := make(map[string]string)
@@ -485,12 +456,49 @@ func (jm *JobManager) getStreamingURLs(job *Job) map[string]string {
 				result["amazon_url"] = fallback.AmazonURL
 			}
 			if len(result) > 0 {
-				fmt.Printf("[Jobs] Deezer fallback OK for %s (ISRC: %s)\n", job.TrackName, result["isrc"])
+				fmt.Printf("[Jobs] Deezer OK for %s (ISRC: %s)\n", job.TrackName, result["isrc"])
 				return result
 			}
 		} else if ferr != nil {
-			fmt.Printf("[Jobs] Deezer fallback failed for %s: %v\n", job.TrackName, ferr)
+			fmt.Printf("[Jobs] Deezer failed for %s: %v — trying Songlink\n", job.TrackName, ferr)
 		}
+	}
+
+	// 2. Songlink en dernier recours
+	return jm.getStreamingURLsViaSonglink(job)
+}
+
+// getStreamingURLsViaSonglink appelle Songlink avec rate-limit et semaphore.
+func (jm *JobManager) getStreamingURLsViaSonglink(job *Job) map[string]string {
+	select {
+	case jm.songLinkSem <- struct{}{}:
+	case <-jm.ctx.Done():
+		fmt.Printf("[Jobs] song.link skipped for %s (shutdown)\n", job.TrackName)
+		return nil
+	}
+
+	defer func() {
+		time.Sleep(time.Duration(songLinkDelay) * time.Millisecond)
+		<-jm.songLinkSem
+	}()
+
+	client := jm.songLinkClient
+
+	if !client.IsRateLimited() {
+		urls, err := client.GetAllURLsFromSpotify(job.SpotifyID, job.Settings.Region)
+		if err == nil && urls != nil {
+			result := make(map[string]string)
+			data, _ := json.Marshal(urls)
+			json.Unmarshal(data, &result)
+			if result["tidal_url"] != "" || result["amazon_url"] != "" || result["isrc"] != "" {
+				return result
+			}
+		}
+		if err != nil {
+			fmt.Printf("[Jobs] song.link failed for %s: %v\n", job.TrackName, err)
+		}
+	} else {
+		fmt.Printf("[Jobs] Songlink rate-limited for %s\n", job.TrackName)
 	}
 	return nil
 }
