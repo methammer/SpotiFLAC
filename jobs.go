@@ -366,15 +366,22 @@ func (jm *JobManager) processJob(jobID string) {
 
 	streamingURLs := jm.getStreamingURLs(job)
 
-	// Fail immédiatement si Songlink indisponible (évite double appel dans les downloaders)
+	// Si Songlink indisponible pour un service qui en a besoin
 	if streamingURLs == nil && (job.Settings.Service == "tidal" || job.Settings.Service == "amazon" || job.Settings.Service == "auto" || job.Settings.Service == "") {
-		fmt.Printf("[Jobs] No streaming URL for %s (Songlink unavailable)\n", job.TrackName)
-		job.Status = StatusFailed
-		job.Error = "songlink unavailable: no streaming URL"
-		job.UpdatedAt = time.Now()
-		jm.saveJob(job)
-		backend.FailDownloadItem(job.ID, job.Error)
-		return
+		// Dernier recours : Deezer (deezmate → yoinkify), pas besoin de Songlink
+		if job.Settings.AllowFallback && job.SpotifyID != "" {
+			fmt.Printf("[Jobs] Songlink unavailable for %s — switching to Deezer last-resort\n", job.TrackName)
+			job.Settings.Service = "deezer"
+			// streamingURLs reste nil : le downloader Deezer n'en a pas besoin
+		} else {
+			fmt.Printf("[Jobs] No streaming URL for %s (Songlink unavailable)\n", job.TrackName)
+			job.Status = StatusFailed
+			job.Error = "songlink unavailable: no streaming URL"
+			job.UpdatedAt = time.Now()
+			jm.saveJob(job)
+			backend.FailDownloadItem(job.ID, job.Error)
+			return
+		}
 	}
 
 	req := jm.buildDownloadRequest(job, outputDir, streamingURLs)
@@ -394,7 +401,7 @@ func (jm *JobManager) processJob(jobID string) {
 		jm.saveJob(job)
 		if job.WatchlistID != "" && job.SpotifyID != "" {
 			isPermanentFailure := true
-			temporaryPatterns := []string{"429", "rate limit", "timeout", "connection refused", "context deadline", "no such host", "dial tcp", "yoinkify", "lookup"}
+			temporaryPatterns := []string{"429", "rate limit", "timeout", "connection refused", "context deadline", "no such host", "dial tcp", "yoinkify", "deezmate", "lookup"}
 			for _, pattern := range temporaryPatterns {
 				if strings.Contains(strings.ToLower(errMsg), strings.ToLower(pattern)) {
 					isPermanentFailure = false

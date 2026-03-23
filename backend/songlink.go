@@ -31,10 +31,10 @@ func (s *SongLinkClient) isRateLimited() bool {
 	return !s.rateLimitedUntil.IsZero() && time.Now().Before(s.rateLimitedUntil)
 }
 
-// markRateLimited enregistre un 429 et bloque les appels pendant 60s
+// markRateLimited enregistre un 429 et bloque les appels pendant 5 minutes
 func (s *SongLinkClient) markRateLimited() {
 	s.rateLimitedUntil = time.Now().Add(5 * time.Minute)
-	fmt.Printf("[Songlink] Rate limited â€” skipping calls for 60s\n")
+	fmt.Printf("[Songlink] Rate limited — skipping calls for 5 minutes\n")
 }
 
 type SongLinkURLs struct {
