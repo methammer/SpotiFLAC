@@ -75,6 +75,7 @@ func NewTidalDownloader(apiURL string) *TidalDownloader {
 
 func (t *TidalDownloader) GetAvailableAPIs() ([]string, error) {
 	apis := []string{
+		"https://triton.squid.wtf",
 		"https://hifi-one.spotisaver.net",
 		"https://hifi-two.spotisaver.net",
 		"https://eu-central.monochrome.tf",
@@ -1105,6 +1106,7 @@ func buildTidalFilename(title, artist, album, albumArtist, releaseDate string, t
 // GetTidalIDFromISRC cherche un track Tidal via ISRC sur les APIs monochrome
 func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, error) {
 	apis := []string{
+		"https://triton.squid.wtf",
 		"https://eu-central.monochrome.tf",
 		"https://hifi-one.spotisaver.net",
 		"https://hifi-two.spotisaver.net",
