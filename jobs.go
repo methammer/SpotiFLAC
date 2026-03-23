@@ -603,9 +603,20 @@ func (jm *JobManager) buildDownloadRequest(job *Job, outputDir string, streaming
 				if service != "tidal" && service != "auto" {
 					service = "tidal"
 				}
-			} else if service != "qobuz" {
-				service = "qobuz"
-				fmt.Printf("[Jobs] Only ISRC available for %s, switching to Qobuz\n", job.TrackName)
+			} else {
+				// GetTidalIDFromISRC échoué — essayer SearchTidalByName (API Tidal directe)
+				downloader := backend.NewTidalDownloader("")
+				if tidalURL, serr := downloader.SearchTidalByName(job.TrackName, job.ArtistName); serr == nil && tidalURL != "" {
+					streamingURLs["tidal_url"] = tidalURL
+					serviceURL = tidalURL
+					fmt.Printf("[Jobs] Tidal found via direct search for %s\n", job.TrackName)
+					if service != "tidal" && service != "auto" {
+						service = "tidal"
+					}
+				} else if service != "qobuz" {
+					service = "qobuz"
+					fmt.Printf("[Jobs] Only ISRC available for %s, switching to Qobuz\n", job.TrackName)
+				}
 			}
 		}
 	}

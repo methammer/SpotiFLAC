@@ -86,6 +86,44 @@ func (t *TidalDownloader) GetAvailableAPIs() ([]string, error) {
 	return apis, nil
 }
 
+func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (string, error) {
+	query := trackName + " " + artistName
+	apiURL := fmt.Sprintf("https://api.tidal.com/v1/search/tracks?query=%s&limit=1&countryCode=US", url.QueryEscape(query))
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create search request: %w", err)
+	}
+	req.Header.Set("x-tidal-token", "CzET4vdadNUFQ5JU")
+	searchClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := searchClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("tidal search request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("tidal search returned status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read search response: %w", err)
+	}
+	var result struct {
+		Items []struct {
+			ID  int64  `json:"id"`
+			URL string `json:"url"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to decode search response: %w", err)
+	}
+	if len(result.Items) == 0 {
+		return "", fmt.Errorf("track not found on Tidal: %s - %s", trackName, artistName)
+	}
+	tidalURL := result.Items[0].URL
+	fmt.Printf("Found Tidal track via direct search: %s (ID: %d)\n", tidalURL, result.Items[0].ID)
+	return tidalURL, nil
+}
+
 func (t *TidalDownloader) GetTidalURLFromSpotify(spotifyTrackID string) (string, error) {
 
 	spotifyBase := "https://open.spotify.com/track/"
@@ -756,9 +794,21 @@ func (t *TidalDownloader) DownloadByURLWithFallback(tidalURL, outputDir, quality
 
 func (t *TidalDownloader) Download(spotifyTrackID, outputDir, quality, filenameFormat string, includeTrackNumber bool, position int, spotifyTrackName, spotifyArtistName, spotifyAlbumName, spotifyAlbumArtist, spotifyReleaseDate string, useAlbumTrackNumber bool, spotifyCoverURL string, embedMaxQualityCover bool, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks int, spotifyTotalDiscs int, spotifyCopyright, spotifyPublisher, spotifyURL string, allowFallback bool, useFirstArtistOnly bool, useSingleGenre bool, embedGenre bool) (string, error) {
 
-	tidalURL, err := t.GetTidalURLFromSpotify(spotifyTrackID)
-	if err != nil {
-		return "", fmt.Errorf("songlink couldn't find Tidal URL: %w", err)
+	var tidalURL string
+	var err error
+	// Essayer la recherche directe Tidal en premier (pas de rate-limit, ~200ms)
+	if spotifyTrackName != "" && spotifyArtistName != "" {
+		tidalURL, err = t.SearchTidalByName(spotifyTrackName, spotifyArtistName)
+		if err != nil {
+			fmt.Printf("Direct Tidal search failed, falling back to song.link: %v\n", err)
+		}
+	}
+	// Fallback sur song.link si la recherche directe échoue
+	if tidalURL == "" {
+		tidalURL, err = t.GetTidalURLFromSpotify(spotifyTrackID)
+		if err != nil {
+			return "", fmt.Errorf("could not find track on Tidal: %w", err)
+		}
 	}
 
 	return t.DownloadByURLWithFallback(tidalURL, outputDir, quality, filenameFormat, includeTrackNumber, position, spotifyTrackName, spotifyArtistName, spotifyAlbumName, spotifyAlbumArtist, spotifyReleaseDate, useAlbumTrackNumber, spotifyCoverURL, embedMaxQualityCover, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks, spotifyTotalDiscs, spotifyCopyright, spotifyPublisher, spotifyURL, allowFallback, useFirstArtistOnly, useSingleGenre, embedGenre)
@@ -1056,9 +1106,12 @@ func buildTidalFilename(title, artist, album, albumArtist, releaseDate string, t
 func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, error) {
 	apis := []string{
 		"https://eu-central.monochrome.tf",
+		"https://hifi-one.spotisaver.net",
+		"https://hifi-two.spotisaver.net",
+		"https://tidal.kinoplus.online",
+		"https://monochrome-api.samidy.com",
 		"https://us-west.monochrome.tf",
 		"https://api.monochrome.tf",
-		"https://hifi-one.spotisaver.net",
 	}
 
 	query := url.QueryEscape(trackName + " " + artistName)

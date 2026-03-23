@@ -495,7 +495,15 @@ func GetDeezerSearchFallback(trackName, artistName string) (*SongLinkURLs, error
 			break
 		}
 	}
-	query := url.QueryEscape(trackName + " " + cleanArtist)
+	// Nettoyer le nom de track : supprimer suffixes type "- 2003 Remaster", "- Written By X"
+	cleanTrack := trackName
+	for _, sep := range []string{" - ", " (", " ["} {
+		if idx := strings.Index(cleanTrack, sep); idx > 0 {
+			cleanTrack = strings.TrimSpace(cleanTrack[:idx])
+			break
+		}
+	}
+	query := url.QueryEscape(cleanTrack + " " + cleanArtist)
 	searchURL := fmt.Sprintf("https://api.deezer.com/search?q=%s&limit=1", query)
 
 	client := NewHTTPClient(10 * time.Second)
