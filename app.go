@@ -37,54 +37,8 @@ type SpotifyMetadataRequest struct {
 	Timeout float64 `json:"timeout"`
 }
 
-type DownloadRequest struct {
-	Service              string `json:"service"`
-	Query                string `json:"query,omitempty"`
-	TrackName            string `json:"track_name,omitempty"`
-	ArtistName           string `json:"artist_name,omitempty"`
-	AlbumName            string `json:"album_name,omitempty"`
-	AlbumArtist          string `json:"album_artist,omitempty"`
-	ReleaseDate          string `json:"release_date,omitempty"`
-	CoverURL             string `json:"cover_url,omitempty"`
-	ApiURL               string `json:"api_url,omitempty"`
-	OutputDir            string `json:"output_dir,omitempty"`
-	AudioFormat          string `json:"audio_format,omitempty"`
-	FilenameFormat       string `json:"filename_format,omitempty"`
-	TrackNumber          bool   `json:"track_number,omitempty"`
-	Position             int    `json:"position,omitempty"`
-	UseAlbumTrackNumber  bool   `json:"use_album_track_number,omitempty"`
-	SpotifyID            string `json:"spotify_id,omitempty"`
-	EmbedLyrics          bool   `json:"embed_lyrics,omitempty"`
-	EmbedMaxQualityCover bool   `json:"embed_max_quality_cover,omitempty"`
-	ServiceURL           string `json:"service_url,omitempty"`
-	ISRC                 string `json:"isrc,omitempty"`
-	AutoOrder            string `json:"auto_order,omitempty"`
-	Duration             int    `json:"duration,omitempty"`
-	ItemID               string `json:"item_id,omitempty"`
-	SpotifyTrackNumber   int    `json:"spotify_track_number,omitempty"`
-	SpotifyDiscNumber    int    `json:"spotify_disc_number,omitempty"`
-	SpotifyTotalTracks   int    `json:"spotify_total_tracks,omitempty"`
-	SpotifyTotalDiscs    int    `json:"spotify_total_discs,omitempty"`
-	Copyright            string `json:"copyright,omitempty"`
-	Publisher            string `json:"publisher,omitempty"`
-	PlaylistName         string `json:"playlist_name,omitempty"`
-	PlaylistOwner        string `json:"playlist_owner,omitempty"`
-	AllowFallback        bool   `json:"allow_fallback"`
-	UseFirstArtistOnly   bool   `json:"use_first_artist_only,omitempty"`
-	UseSingleGenre       bool   `json:"use_single_genre,omitempty"`
-	EmbedGenre           bool   `json:"embed_genre,omitempty"`
-	// FIX #4 — propagé depuis Job.UserID pour tagguer les items d'historique
-	UserID               string `json:"user_id,omitempty"`
-}
-
-type DownloadResponse struct {
-	Success       bool   `json:"success"`
-	Message       string `json:"message"`
-	File          string `json:"file,omitempty"`
-	Error         string `json:"error,omitempty"`
-	AlreadyExists bool   `json:"already_exists,omitempty"`
-	ItemID        string `json:"item_id,omitempty"`
-}
+type DownloadRequest = backend.DownloadRequest
+type DownloadResponse = backend.DownloadResponse
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Spotify metadata

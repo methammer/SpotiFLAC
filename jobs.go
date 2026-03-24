@@ -367,8 +367,7 @@ func (jm *JobManager) processJob(jobID string) {
 	streamingURLs := jm.getStreamingURLs(job)
 
 	req := jm.buildDownloadRequest(job, outputDir, streamingURLs)
-	app := &App{}
-	resp, err := app.DownloadTrack(req)
+	resp, err := backend.ExecuteDownload(req)
 	if err != nil || !resp.Success {
 		errMsg := ""
 		if err != nil {
