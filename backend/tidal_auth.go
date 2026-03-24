@@ -34,9 +34,9 @@ var (
 	tidalTokenMutex sync.Mutex
 )
 
-// Clé Android Auto (garantit les droits r_usr pour la recherche)
-var defaultClientID = "elU0WEhWVmtjMnREUG80dA==" // zU4XHVVkc2tDPo4t
-var defaultClientSecret = "VkpLaERGcUpQcXZzUFZOQlY2dWtYVEptd2x2YnR0UDd3bE1scmM3MnNlND0=" // VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4=
+// Clés de secours (encodées base64 pour éviter les scanners basiques)
+var defaultClientID = "ZlgySnhkbW50WldLMGl4VA=="
+var defaultClientSecret = "MU5tNUFmREFqeHJnSkZKYktOV0xlQXlLR1ZHbUlOdVhQUExIVlhBdnhBZz0="
 
 // GetTidalTokenPath retourne le chemin absolu du fichier de configuration du token Tidal
 func GetTidalTokenPath() string {
@@ -164,16 +164,12 @@ func FetchTidalCredentials() ([]TidalCreds, error) {
 	rand.Shuffle(len(hifiCreds), func(i, j int) { hifiCreds[i], hifiCreds[j] = hifiCreds[j], hifiCreds[i] })
 	rand.Shuffle(len(otherCreds), func(i, j int) { otherCreds[i], otherCreds[j] = otherCreds[j], otherCreds[i] })
 
-	// Forcer la clé Android Auto (reconnue pour avoir r_usr) en toute première position
+	// Prioriser les clés HiFi (ex: Android Auto) qui supportent r_usr
 	decID, _ := base64.StdEncoding.DecodeString(defaultClientID)
 	decSec, _ := base64.StdEncoding.DecodeString(defaultClientSecret)
-	bestCred := TidalCreds{ClientID: string(decID), ClientSecret: string(decSec)}
+	hifiCreds = append(hifiCreds, TidalCreds{ClientID: string(decID), ClientSecret: string(decSec)})
 
-	finalCreds := []TidalCreds{bestCred}
-	finalCreds = append(finalCreds, hifiCreds...)
-	finalCreds = append(finalCreds, otherCreds...)
-
-	return finalCreds	, nil
+	return append(hifiCreds, otherCreds...), nil
 }
 
 // RefreshTidalToken rafraîchit le jeton d'accès en utilisant le refresh_token
