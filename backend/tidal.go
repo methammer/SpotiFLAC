@@ -114,6 +114,8 @@ func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		fmt.Printf("[Tidal Search] Failed with status %d: %s\n", resp.StatusCode, string(bodyBytes))
 		return "", fmt.Errorf("search returned status %d", resp.StatusCode)
 	}
 
@@ -125,7 +127,9 @@ func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (strin
 			} `json:"items"`
 		} `json:"tracks"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(bodyBytes, &searchResp); err != nil {
+		fmt.Printf("[Tidal Search] Failed to decode JSON: %v\nBody: %s\n", err, string(bodyBytes))
 		return "", err
 	}
 	if len(searchResp.Tracks.Items) == 0 {
@@ -1206,9 +1210,15 @@ func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, erro
 				ID int64 `json:"id"`
 			} `json:"items"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&searchResp); err == nil && len(searchResp.Items) > 0 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(bodyBytes, &searchResp); err == nil && len(searchResp.Items) > 0 {
 			return searchResp.Items[0].ID, "https://api.tidal.com", nil
+		} else if err != nil {
+			fmt.Printf("[Tidal ISRC] Failed to decode JSON: %v\nBody: %s\n", err, string(bodyBytes))
 		}
+	} else {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		fmt.Printf("[Tidal ISRC] API returned status %d: %s\n", resp.StatusCode, string(bodyBytes))
 	}
 
 	return 0, "", fmt.Errorf("ISRC not found on Tidal")
