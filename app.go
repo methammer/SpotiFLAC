@@ -387,14 +387,40 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 				isrcChan <- req.ISRC
 				return
 			}
-			// Utiliser le singleton JobManager pour partager le rate limiter
-			jm := GetJobManager()
-			if jm != nil {
-				isrc, _ := jm.songLinkClient.GetISRC(req.SpotifyID)
-				isrcChan <- isrc
-			} else {
-				isrcChan <- ""
+
+			var finalIsrc string
+			// 1. Tenter Deezer Fallback (rapide, sans compte, pas de rate-limit Songlink)
+			if req.TrackName != "" && req.ArtistName != "" {
+				if fallback, ferr := backend.GetDeezerSearchFallback(req.TrackName, req.ArtistName); ferr == nil && fallback != nil && fallback.ISRC != "" {
+					finalIsrc = fallback.ISRC
+					fmt.Printf("[ISRC] Found via Deezer API: %s\n", finalIsrc)
+				}
 			}
+
+			// 2. Si Deezer a échoué, tenter Songlink (JSON ou HTML)
+			if finalIsrc == "" {
+				jm := GetJobManager()
+				if jm != nil {
+					// L'appel GetAllURLs inclut le fallback HTML depuis la v1.3.6
+					urls, err := jm.songLinkClient.GetAllURLsFromSpotify(req.SpotifyID, "")
+					if err == nil && urls != nil && urls.ISRC != "" {
+						finalIsrc = urls.ISRC
+						fmt.Printf("[ISRC] Found via Songlink JSON: %s\n", finalIsrc)
+					} else {
+						// Fallback ultime : Scraping HTML (si l'appel global ne l'a pas déjà fait)
+						if htmlURLs, hErr := jm.songLinkClient.ScrapeSongLinkHTML(req.SpotifyID); hErr == nil && htmlURLs != nil && htmlURLs.ISRC != "" {
+							finalIsrc = htmlURLs.ISRC
+							fmt.Printf("[ISRC] Found via Songlink HTML: %s\n", finalIsrc)
+						}
+					}
+				}
+			}
+
+			if finalIsrc == "" {
+				fmt.Printf("[ISRC] All lookup methods failed for %s\n", req.TrackName)
+			}
+
+			isrcChan <- finalIsrc
 		}()
 	} else {
 		close(lyricsChan)
