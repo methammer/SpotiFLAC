@@ -181,7 +181,7 @@ func RefreshTidalToken(tokenData *TidalTokenData) (*TidalTokenData, error) {
 	urlStr := "https://auth.tidal.com/v1/oauth2/token"
 
 	// Form encoded data
-	data := fmt.Sprintf("client_id=%s&refresh_token=%s&grant_type=refresh_token&scope=r_usr+w_usr+w_sub",
+	data := fmt.Sprintf("client_id=%s&refresh_token=%s&grant_type=refresh_token&scope=r_usr%%20w_usr%%20w_sub",
 		tokenData.ClientID, tokenData.RefreshToken)
 
 	req, err := http.NewRequest("POST", urlStr, strings.NewReader(data))
@@ -249,7 +249,7 @@ func PerformDeviceAuthorization() (*TidalTokenData, error) {
 	// Essayer chaque clé jusqu'à ce qu'une fonctionne pour l'étape 1
 	for _, cred := range creds {
 		urlStr := "https://auth.tidal.com/v1/oauth2/device_authorization"
-		data := fmt.Sprintf("client_id=%s&scope=r_usr+w_usr+w_sub", cred.ClientID)
+		data := fmt.Sprintf("client_id=%s&scope=r_usr%%20w_usr%%20w_sub", cred.ClientID)
 
 		req, _ := http.NewRequest("POST", urlStr, strings.NewReader(data))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

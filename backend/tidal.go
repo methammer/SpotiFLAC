@@ -116,6 +116,9 @@ func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (strin
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		fmt.Printf("[Tidal Search] Failed with status %d: %s\n", resp.StatusCode, string(bodyBytes))
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			DeleteTidalToken()
+		}
 		return "", fmt.Errorf("search returned status %d", resp.StatusCode)
 	}
 
@@ -1192,7 +1195,8 @@ func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, erro
 		return 0, "", fmt.Errorf("tidal authentication failed: %w", err)
 	}
 
-	apiURL := fmt.Sprintf("https://api.tidal.com/v1/tracks?countryCode=US&filter[isrc]=%s&limit=1", isrc)
+	// On encode les crochets [ ] en %5B et %5D pour éviter l'erreur 400 (Bad Request) de Tomcat
+	apiURL := fmt.Sprintf("https://api.tidal.com/v1/tracks?countryCode=US&filter%%5Bisrc%%5D=%s&limit=1", isrc)
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
@@ -1219,6 +1223,9 @@ func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, erro
 	} else {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		fmt.Printf("[Tidal ISRC] API returned status %d: %s\n", resp.StatusCode, string(bodyBytes))
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			DeleteTidalToken()
+		}
 	}
 
 	return 0, "", fmt.Errorf("ISRC not found on Tidal")
