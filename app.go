@@ -367,6 +367,14 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 
 	case "tidal":
+		if req.ServiceURL == "" && req.TrackName != "" && req.ArtistName != "" {
+			dl := backend.NewTidalDownloader("")
+			if tidalURL, serr := dl.SearchTidalByName(req.TrackName, req.ArtistName); serr == nil && tidalURL != "" {
+				req.ServiceURL = tidalURL
+				fmt.Printf("[DownloadTrack] Found Tidal URL via fallback search: %s\n", tidalURL)
+			}
+		}
+
 		if req.ApiURL == "" || req.ApiURL == "auto" {
 			downloader := backend.NewTidalDownloader("")
 			if req.ServiceURL != "" {
@@ -404,6 +412,15 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 			orderStr = "tidal-amazon-qobuz"
 		}
 		order := strings.Split(orderStr, "-")
+
+		if req.ServiceURL == "" && req.TrackName != "" && req.ArtistName != "" {
+			dl := backend.NewTidalDownloader("")
+			if tidalURL, serr := dl.SearchTidalByName(req.TrackName, req.ArtistName); serr == nil && tidalURL != "" {
+				req.ServiceURL = tidalURL
+				fmt.Printf("[DownloadTrack/Auto] Found Tidal URL via fallback search: %s\n", tidalURL)
+			}
+		}
+
 		var lastErr error
 		for _, svc := range order {
 			switch svc {
