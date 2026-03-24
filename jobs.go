@@ -366,24 +366,6 @@ func (jm *JobManager) processJob(jobID string) {
 
 	streamingURLs := jm.getStreamingURLs(job)
 
-	// Si Songlink indisponible pour un service qui en a besoin
-	if streamingURLs == nil && (job.Settings.Service == "tidal" || job.Settings.Service == "amazon" || job.Settings.Service == "auto" || job.Settings.Service == "") {
-		// Dernier recours : Deezer (deezmate → yoinkify), pas besoin de Songlink
-		if job.Settings.AllowFallback && job.SpotifyID != "" {
-			fmt.Printf("[Jobs] Songlink unavailable for %s — switching to Deezer last-resort\n", job.TrackName)
-			job.Settings.Service = "deezer"
-			// streamingURLs reste nil : le downloader Deezer n'en a pas besoin
-		} else {
-			fmt.Printf("[Jobs] No streaming URL for %s (Songlink unavailable)\n", job.TrackName)
-			job.Status = StatusFailed
-			job.Error = "songlink unavailable: no streaming URL"
-			job.UpdatedAt = time.Now()
-			jm.saveJob(job)
-			backend.FailDownloadItem(job.ID, job.Error)
-			return
-		}
-	}
-
 	req := jm.buildDownloadRequest(job, outputDir, streamingURLs)
 	app := &App{}
 	resp, err := app.DownloadTrack(req)
@@ -626,21 +608,26 @@ func (jm *JobManager) buildDownloadRequest(job *Job, outputDir string, streaming
 				if service != "tidal" && service != "auto" {
 					service = "tidal"
 				}
-			} else {
-				// GetTidalIDFromISRC échoué — essayer SearchTidalByName (API Tidal directe)
-				downloader := backend.NewTidalDownloader("")
-				if tidalURL, serr := downloader.SearchTidalByName(job.TrackName, job.ArtistName); serr == nil && tidalURL != "" {
-					streamingURLs["tidal_url"] = tidalURL
-					serviceURL = tidalURL
-					fmt.Printf("[Jobs] Tidal found via direct search for %s\n", job.TrackName)
-					if service != "tidal" && service != "auto" {
-						service = "tidal"
-					}
-				} else if service != "qobuz" {
-					service = "qobuz"
-					fmt.Printf("[Jobs] Only ISRC available for %s, switching to Qobuz\n", job.TrackName)
-				}
 			}
+		}
+	}
+
+	// Si toujours pas de serviceURL et qu'on veut Tidal (ou auto), on utilise la recherche directe Tidal
+	if serviceURL == "" && (service == "tidal" || service == "auto") {
+		downloader := backend.NewTidalDownloader("")
+		if tidalURL, serr := downloader.SearchTidalByName(job.TrackName, job.ArtistName); serr == nil && tidalURL != "" {
+			if streamingURLs == nil {
+				streamingURLs = make(map[string]string)
+			}
+			streamingURLs["tidal_url"] = tidalURL
+			serviceURL = tidalURL
+			fmt.Printf("[Jobs] Tidal found via direct search for %s\n", job.TrackName)
+			if service != "tidal" && service != "auto" {
+				service = "tidal"
+			}
+		} else if streamingURLs != nil && streamingURLs["isrc"] != "" && service != "qobuz" {
+			service = "qobuz"
+			fmt.Printf("[Jobs] Tidal search failed, but ISRC available for %s, switching to Qobuz\n", job.TrackName)
 		}
 	}
 
