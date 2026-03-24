@@ -100,6 +100,50 @@ func (a *App) GetStreamingURLs(spotifyTrackID string, region string) (string, er
 		return "", fmt.Errorf("job manager not initialized")
 	}
 	urls, err := jm.songLinkClient.GetAllURLsFromSpotify(spotifyTrackID, region)
+
+	// Si Songlink échoue ou ne trouve rien (ex: 429), on tente une recherche directe sur l'API Tidal
+	if (err != nil || urls == nil || (urls.TidalURL == "" && urls.AmazonURL == "")) {
+		fmt.Printf("[GetStreamingURLs] Songlink failed/empty (%v), falling back to direct Tidal Search for ID: %s\n", err, spotifyTrackID)
+
+		// 1. Récupérer le nom de la piste et de l'artiste depuis Spotify via l'ID
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		trackURL := fmt.Sprintf("https://open.spotify.com/track/%s", spotifyTrackID)
+		trackData, sErr := backend.GetFilteredSpotifyData(ctx, trackURL, false, 0)
+
+		if sErr == nil {
+			var trackResp struct {
+				Track struct {
+					Name    string `json:"name"`
+					Artists []struct {
+						Name string `json:"name"`
+					} `json:"artists"`
+				} `json:"track"`
+			}
+
+			if jsonData, jsonErr := json.Marshal(trackData); jsonErr == nil {
+				if json.Unmarshal(jsonData, &trackResp) == nil && trackResp.Track.Name != "" && len(trackResp.Track.Artists) > 0 {
+					artistName := trackResp.Track.Artists[0].Name
+					trackName := trackResp.Track.Name
+
+					// 2. Lancer la recherche sur l'API Tidal
+					dl := backend.NewTidalDownloader("")
+					if tidalURL, tErr := dl.SearchTidalByName(trackName, artistName); tErr == nil && tidalURL != "" {
+						if urls == nil {
+							urls = &backend.SongLinkURLs{}
+						}
+						urls.TidalURL = tidalURL
+						fmt.Printf("[GetStreamingURLs] ✓ Fallback successful: Found Tidal URL %s\n", tidalURL)
+						err = nil // On efface l'erreur Songlink pour le frontend
+					} else {
+						fmt.Printf("[GetStreamingURLs] Tidal direct search failed: %v\n", tErr)
+					}
+				}
+			}
+		}
+	}
+
 	if err != nil {
 		return "", err
 	}
