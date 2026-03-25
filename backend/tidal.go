@@ -53,7 +53,7 @@ type TidalBTSManifest struct {
 func NewTidalDownloader(apiURL string) *TidalDownloader {
 	if apiURL == "" {
 		downloader := &TidalDownloader{
-			client: NewHTTPClient(5 * time.Second),
+			client:     NewHTTPClient(5 * time.Second),
 			timeout:    5 * time.Second,
 			maxRetries: 3,
 			apiURL:     "",
@@ -66,7 +66,7 @@ func NewTidalDownloader(apiURL string) *TidalDownloader {
 	}
 
 	return &TidalDownloader{
-		client: NewHTTPClient(5 * time.Second),
+		client:     NewHTTPClient(5 * time.Second),
 		timeout:    5 * time.Second,
 		maxRetries: 3,
 		apiURL:     apiURL,
@@ -81,11 +81,6 @@ func (t *TidalDownloader) GetAvailableAPIs() ([]string, error) {
 }
 
 func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (string, error) {
-	token, err := GetValidTidalToken()
-	if err != nil {
-		return "", fmt.Errorf("tidal authentication failed: %w", err)
-	}
-
 	cleanArtist := artistName
 	for _, sep := range []string{", ", " & ", " feat.", " ft.", " featuring "} {
 		if idx := strings.Index(cleanArtist, sep); idx > 0 {
@@ -102,10 +97,10 @@ func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (strin
 	}
 
 	query := url.QueryEscape(cleanTrack + " " + cleanArtist)
-	apiURL := fmt.Sprintf("https://api.tidal.com/v1/search?query=%s&limit=1&types=TRACKS&countryCode=US", query)
+	apiURL := fmt.Sprintf("https://api.tidal.com/v1/search/tracks?query=%s&limit=1&countryCode=US", query)
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("x-tidal-token", GetPublicTidalToken())
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -116,71 +111,24 @@ func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (strin
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		fmt.Printf("[Tidal Search] Failed with status %d: %s\n", resp.StatusCode, string(bodyBytes))
-		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			if _, rErr := RefreshTidalToken(token); rErr != nil {
-				DeleteTidalToken()
-			}
-		}
 		return "", fmt.Errorf("search returned status %d", resp.StatusCode)
 	}
 
 	var searchResp struct {
-		Tracks struct {
-			Items []struct {
-				ID  int64  `json:"id"`
-				URL string `json:"url"`
-			} `json:"items"`
-		} `json:"tracks"`
+		Items []struct {
+			ID int64 `json:"id"`
+		} `json:"items"`
 	}
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if err := json.Unmarshal(bodyBytes, &searchResp); err != nil {
 		fmt.Printf("[Tidal Search] Failed to decode JSON: %v\nBody: %s\n", err, string(bodyBytes))
 		return "", err
 	}
-	if len(searchResp.Tracks.Items) == 0 {
+	if len(searchResp.Items) == 0 {
 		return "", fmt.Errorf("no tracks found")
 	}
 
-	return fmt.Sprintf("https://tidal.com/track/%d", searchResp.Tracks.Items[0].ID), nil
-}
-
-// _
-func (t *TidalDownloader) oldSearchTidalByName(trackName, artistName string) (string, error) {
-	query := trackName + " " + artistName
-	apiURL := fmt.Sprintf("https://api.tidal.com/v1/search/tracks?query=%s&limit=1&countryCode=US", url.QueryEscape(query))
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create search request: %w", err)
-	}
-	req.Header.Set("x-tidal-token", "CzET4vdadNUFQ5JU")
-	searchClient := &http.Client{Timeout: 10 * time.Second}
-	resp, err := searchClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("tidal search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("tidal search returned status %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read search response: %w", err)
-	}
-	var result struct {
-		Items []struct {
-			ID  int64  `json:"id"`
-			URL string `json:"url"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to decode search response: %w", err)
-	}
-	if len(result.Items) == 0 {
-		return "", fmt.Errorf("track not found on Tidal: %s - %s", trackName, artistName)
-	}
-	tidalURL := result.Items[0].URL
-	fmt.Printf("Found Tidal track via direct search: %s (ID: %d)\n", tidalURL, result.Items[0].ID)
-	return tidalURL, nil
+	return fmt.Sprintf("https://tidal.com/track/%d", searchResp.Items[0].ID), nil
 }
 
 func (t *TidalDownloader) GetTidalURLFromSpotify(spotifyTrackID string) (string, error) {
@@ -1194,16 +1142,10 @@ func buildTidalFilename(title, artist, album, albumArtist, releaseDate string, t
 
 // GetTidalIDFromISRC cherche un track Tidal via ISRC sur l'API officielle
 func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, error) {
-	token, err := GetValidTidalToken()
-	if err != nil {
-		return 0, "", fmt.Errorf("tidal authentication failed: %w", err)
-	}
-
-	// On encode les crochets [ ] en %5B et %5D pour éviter l'erreur 400 (Bad Request) de Tomcat
-	apiURL := fmt.Sprintf("https://api.tidal.com/v1/tracks?countryCode=US&filter%%5Bisrc%%5D=%s&limit=1", isrc)
+	apiURL := fmt.Sprintf("https://api.tidal.com/v1/tracks?countryCode=US&isrc=%s&limit=1", isrc)
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("x-tidal-token", GetPublicTidalToken())
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -1227,11 +1169,6 @@ func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, erro
 	} else {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		fmt.Printf("[Tidal ISRC] API returned status %d: %s\n", resp.StatusCode, string(bodyBytes))
-		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			if _, rErr := RefreshTidalToken(token); rErr != nil {
-				DeleteTidalToken()
-			}
-		}
 	}
 
 	return 0, "", fmt.Errorf("ISRC not found on Tidal")
