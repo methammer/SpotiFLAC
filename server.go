@@ -244,7 +244,7 @@ func checkWatchlistOwnership(watchlistID string, user *JWTClaims) error {
 	if err != nil {
 		return fmt.Errorf("watchlist not found")
 	}
-	if pl.UserID != "" && pl.UserID != user.UserID && !user.IsAdmin {
+	if pl.UserID != user.UserID && !user.IsAdmin {
 		return fmt.Errorf("access denied")
 	}
 	return nil

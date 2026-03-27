@@ -140,9 +140,16 @@ function App() {
             setShowScrollTop(window.scrollY > 300);
         };
         window.addEventListener("scroll", handleScroll);
+        const handleAuthExpired = () => {
+            clearAuth();
+            setAuthed(false);
+            setAuthUser(null);
+        };
+        window.addEventListener("auth:expired", handleAuthExpired);
         return () => {
             mediaQuery.removeEventListener("change", handleChange);
             window.removeEventListener("scroll", handleScroll);
+            window.removeEventListener("auth:expired", handleAuthExpired);
         };
     }, [authed]);
     const handleEnableSpotFetchApi = async () => {

@@ -13,6 +13,11 @@ async function call<T>(method: string, params?: unknown): Promise<T> {
     body: JSON.stringify({ method, params: params ?? null }),
   });
 
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent("auth:expired"));
+    throw new Error("Session expired");
+  }
+
   if (!res.ok) {
     throw new Error(`RPC HTTP error: ${res.status}`);
   }

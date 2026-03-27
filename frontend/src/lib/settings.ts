@@ -84,7 +84,6 @@ export const TEMPLATE_VARIABLES = [
     { key: "{date}", description: "Release date (YYYY-MM-DD)", example: "2014-10-27" },
 ];
 function detectOS(): "Windows" | "linux/MacOS" {
-    return "linux/MacOS";
     const platform = window.navigator.platform.toLowerCase();
     if (platform.includes('win')) {
         return "Windows";
