@@ -8,7 +8,6 @@ import { applyTheme } from "@/lib/themes";
 import { CheckFFmpegInstalled, OpenFolder, DownloadFFmpeg } from "@/lib/rpc";
 import { LoginPage } from "@/components/LoginPage";
 import { isAuthenticated, clearAuth, getUser, tryLocalAuth, fetchMe } from "@/lib/auth";
-import { EventsOn, EventsOff, Quit } from "../wailsjs/runtime/runtime";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { TitleBar } from "@/components/TitleBar";
 import { Sidebar, type PageType } from "@/components/Sidebar";
@@ -208,21 +207,8 @@ function App() {
         setFfmpegInstallProgress(0);
         setFfmpegInstallStatus("starting");
         try {
-            EventsOn("ffmpeg:progress", (progress: number) => {
-                setFfmpegInstallProgress(progress);
-                if (progress >= 100) {
-                    setFfmpegInstallStatus("extracting");
-                }
-                else {
-                    setFfmpegInstallStatus("downloading");
-                }
-            });
-            EventsOn("ffmpeg:status", (status: string) => {
-                setFfmpegInstallStatus(status);
-            });
+            setFfmpegInstallStatus("downloading");
             const response = await DownloadFFmpeg();
-            EventsOff("ffmpeg:progress");
-            EventsOff("ffmpeg:status");
             if (response.success) {
                 toast.success("FFmpeg installed successfully!");
                 setIsFFmpegInstalled(true);
@@ -605,9 +591,6 @@ function App() {
                         </div>)}
 
                     <DialogFooter className="flex-row gap-3 pt-2">
-                        {!isInstallingFFmpeg && (<Button variant="outline" className="flex-1 h-11 text-sm font-bold transition-colors" onClick={() => Quit()}>
-                                Exit
-                            </Button>)}
                         <Button className={`${isInstallingFFmpeg ? 'w-full' : 'flex-1'} h-11 text-sm font-bold shadow-lg shadow-primary/10`} onClick={handleInstallFFmpeg} disabled={isInstallingFFmpeg}>
                             {isInstallingFFmpeg ? "Installing..." : "Install now"}
                         </Button>

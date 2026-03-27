@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { GetPreviewURL } from "@/../wailsjs/go/main/App";
+import { GetPreviewURL } from "@/lib/rpc";
 import { toast } from "sonner";
 export function usePreview() {
     const [loadingPreview, setLoadingPreview] = useState<string | null>(null);

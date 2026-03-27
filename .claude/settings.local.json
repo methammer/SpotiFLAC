@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/Administrator/Documents/ZED/SpotiFLAC/*.go)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"Connect\\\\|PKCE\\\\|auth.*URL\\\\|login\" /c/Users/Administrator/Documents/ZED/SpotiFLAC/frontend/src/components/*.tsx)",
+      "Bash(ls -la /c/Users/Administrator/Documents/ZED/SpotiFLAC/*.md)"
+    ]
+  }
+}
