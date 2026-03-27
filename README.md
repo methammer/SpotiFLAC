@@ -18,6 +18,7 @@ A self-hosted web app to download Spotify tracks in true FLAC from Tidal, Qobuz,
 - 📊 Real-time download queue with progress, speed and size
 - 🏠 **LAN bypass** — optional auto-login on local network (no password required)
 - 🗂️ File browser, audio converter, audio analysis
+- 🔑 **Optional Tidal Premium** — PKCE auth for better reliability; falls back to community HiFi APIs without any account
 - 🧹 Automatic BoltDB cleanup (deduplication every 24h)
 - 🐳 Docker-first deployment with GitHub Actions CI/CD
 
@@ -127,6 +128,34 @@ Watchlists track Spotify playlists and automatically sync them at a configurable
 - Stats show total / downloaded / missing per playlist
 - Playlist names are resolved from Spotify metadata on first sync
 
+## Tidal Authentication
+
+By default SpotiFLAC uses **community HiFi API proxies** — no Tidal account required.
+
+Optionally, authenticate with a **Premium Tidal account** for better reliability via **PKCE Web OIDC** (same flow as the official Tidal web player).
+
+**Automated (recommended):**
+```bash
+python3 auth_tidal.py --host http://your-server:6890
+```
+
+**Manual (curl):**
+```bash
+# Step 1 — get the auth URL
+curl http://your-server:6890/api/auth/tidal/url
+
+# Step 2 — open the URL in a browser and log in with your Tidal Premium account
+
+# Step 3 — copy the redirect URL (https://listen.tidal.com/login/auth?code=...) and exchange it
+curl -X POST http://your-server:6890/api/auth/tidal/callback \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://listen.tidal.com/login/auth?code=..."}'
+```
+
+- Token cached in `tidal_token.json` and **auto-refreshed** before expiry
+- If no token is present (or it expires), the app falls back to community HiFi proxies automatically
+- See [`TIDAL_AUTH_PKCE.md`](TIDAL_AUTH_PKCE.md) for the full walkthrough
+
 ## Architecture
 
 ```
@@ -134,7 +163,10 @@ Browser → /auth/login     → Jellyfin auth → JWT (24h)
 Browser → /auth/local     → LAN bypass    → JWT (admin, if DISABLE_AUTH_ON_LAN=true)
 Browser → /api/rpc + JWT  → handlers (per-user filtered)
                           → BoltDB (jobs, watchlists, history, users)
-                          → Download workers (3 parallel)
+                          → JobManager (unified queue: manual + watchlist downloads)
+                            → Tidal  (PKCE token → Community HiFi proxies)
+                            → Qobuz  (community proxies)
+                            → Amazon (community proxy)
 ```
 
 **Data isolation per user:**
@@ -145,7 +177,7 @@ Browser → /api/rpc + JWT  → handlers (per-user filtered)
 ## Building from Source
 
 ```bash
-# Requirements: Go 1.21+, Bun
+# Requirements: Go 1.26+, Bun
 cd frontend && bun install && bun run build
 cd ..
 go build -o spotiflac .
@@ -161,7 +193,9 @@ All data is stored in the config volume (`/home/nonroot/.SpotiFLAC`):
 | File | Description |
 |------|-------------|
 | `jobs.db` | Download jobs, watchlists, users, history (BoltDB — single file) |
-| `config.json` | Global settings fallback |
+| `jwt_secret` | Auto-generated JWT signing key (created on first run) |
+| `tidal_token.json` | Cached Tidal auth token (PKCE Web OIDC, if authenticated) |
+| `config.json` | Global settings fallback (legacy) |
 
 > Since v1.1.7, download history is stored in `jobs.db` (no separate `history.db`), eliminating BoltDB lock conflicts on restart.
 
@@ -179,6 +213,39 @@ All data is stored in the config volume (`/home/nonroot/.SpotiFLAC`):
 | Self-hosted | ❌ | ✅ |
 
 ## Changelog
+
+### v3.0.6 — 2026-03-26
+- **fix(tidal):** Community HiFi proxy list refreshed with active instances
+- **feat(tidal):** PKCE Web OIDC flow — Premium accounts bypass the scope restrictions that broke the v2 Device Flow (`auth_tidal.py` helper script)
+- **docs:** `TIDAL_AUTH_PKCE.md` and `EXTERNAL_APIS.md` added
+
+### v3.0.5
+- **feat(tidal):** PKCE Web OIDC authentication flow via `/api/auth/tidal/url` + `/api/auth/tidal/callback`
+
+### v3.0.4
+- **feat(tidal):** Community HiFi API public instances added as automatic fallback when no token is present
+
+### v3.0.3
+- **feat(tidal):** Public token used for search/ISRC resolution to avoid 403 on unauthenticated calls
+
+### v3.0.2
+- **feat(tidal):** Automatic token refresh before expiry
+
+### v3.0.1
+- **fix(jobs):** JobManager infinite loop / false instant success
+
+### v3.0.0 — 2026-03-24
+- **feat:** Unified download architecture — manual "Download FLAC" now enqueues via JobManager (same queue, retry, progress as watchlist downloads); ~400 lines of redundant code removed
+
+### v2.0.0 → v2.0.10 — 2026-03-22
+- **feat:** Direct Tidal API authentication replacing proxy servers (Device Flow token — later superseded by PKCE in v3.0.5 after Tidal dropped `playback` scope from Device Flow)
+- **feat:** Manual downloads resilient to Song.link outages (HTML scraping fallback + direct Tidal name/ISRC search)
+- **fix:** Multiple Tidal 400/403 scope errors (`r_usr`, encoding); split search/download HTTP clients
+
+### v1.3.0 → v1.3.6
+- **feat:** Deezer ISRC fallback + direct Tidal search by name when Song.link unavailable
+- **feat:** Community API pool expanded (triton.squid.wtf); Song.link NEXT_DATA HTML scraping fallback
+- **fix:** Deezer disabled (domain expiry)
 
 ### v1.2.14 — 2026-03-10
 - **feat:** `DISABLE_AUTH_ON_LAN` — auto-login on direct LAN/localhost access
