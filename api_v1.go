@@ -4,7 +4,6 @@ package main
 // REST API v1 — /api/v1/*
 //
 // Auth : JWT Bearer (frontend) ou X-API-Key (applications externes).
-// Le frontend continue d'utiliser /api/rpc pendant la transition (Phase 4).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import (
@@ -12,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -433,9 +433,16 @@ func (s *Server) registerV1Routes() {
 		if user := GetUserFromContext(r); user != nil {
 			userID = user.UserID
 		}
-		if err := a.ClearFetchHistory(userID); err != nil {
-			writeV1Error(w, http.StatusInternalServerError, err.Error())
-			return
+		if itemType := r.URL.Query().Get("type"); itemType != "" {
+			if err := a.ClearFetchHistoryByType(itemType, userID); err != nil {
+				writeV1Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		} else {
+			if err := a.ClearFetchHistory(userID); err != nil {
+				writeV1Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 		writeV1JSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}))
@@ -615,15 +622,47 @@ func (s *Server) registerV1Routes() {
 	s.mux.Handle("GET /api/v1/system/info", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
 		osInfo, _ := a.GetOSInfo()
 		configPath, _ := a.GetConfigPath()
+		homeDir, _ := os.UserHomeDir()
 		writeV1JSON(w, http.StatusOK, map[string]string{
 			"os":          osInfo,
 			"config_path": configPath,
+			"home_dir":    homeDir,
 			"version":     "v1",
 		})
 	}))
 
 	s.mux.Handle("GET /api/v1/system/ffmpeg", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
-		result, err := a.CheckFFmpegInstalled()
+		installed, err := a.CheckFFmpegInstalled()
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		ffprobeInstalled, _ := a.IsFFprobeInstalled()
+		ffmpegPath, _ := a.GetFFmpegPath()
+		writeV1JSON(w, http.StatusOK, map[string]interface{}{
+			"installed":         installed,
+			"ffprobe_installed": ffprobeInstalled,
+			"ffmpeg_path":       ffmpegPath,
+		})
+	}))
+
+	s.mux.Handle("POST /api/v1/system/ffmpeg/install", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		result := a.DownloadFFmpeg()
+		writeV1JSON(w, http.StatusAccepted, result)
+	}))
+
+	s.mux.Handle("GET /api/v1/system/defaults", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		writeV1JSON(w, http.StatusOK, a.GetDefaults())
+	}))
+
+	// ── Downloads (direct) ────────────────────────────────────────────────
+	s.mux.Handle("POST /api/v1/downloads/track", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var req DownloadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err := a.DownloadTrack(req)
 		if err != nil {
 			writeV1Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -631,9 +670,254 @@ func (s *Server) registerV1Routes() {
 		writeV1JSON(w, http.StatusOK, result)
 	}))
 
-	s.mux.Handle("POST /api/v1/system/ffmpeg/install", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
-		result := a.DownloadFFmpeg()
-		writeV1JSON(w, http.StatusAccepted, result)
+	s.mux.Handle("POST /api/v1/media/header", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var req HeaderDownloadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err := a.DownloadHeader(req)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, result)
+	}))
+
+	s.mux.Handle("POST /api/v1/media/gallery", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var req GalleryImageDownloadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err := a.DownloadGalleryImage(req)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, result)
+	}))
+
+	s.mux.Handle("POST /api/v1/media/avatar", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var req AvatarDownloadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err := a.DownloadAvatar(req)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, result)
+	}))
+
+	// ── Jobs (legacy queue ops) ───────────────────────────────────────────
+	s.mux.Handle("GET /api/v1/jobs/progress", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		writeV1JSON(w, http.StatusOK, a.GetDownloadProgress())
+	}))
+
+	s.mux.Handle("DELETE /api/v1/jobs/pending", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		a.CancelAllQueuedItems()
+		writeV1JSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
+
+	s.mux.Handle("POST /api/v1/jobs/legacy/enqueue", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			SpotifyID  string `json:"spotify_id"`
+			TrackName  string `json:"track_name"`
+			ArtistName string `json:"artist_name"`
+			AlbumName  string `json:"album_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		id := a.AddToDownloadQueue(params.SpotifyID, params.TrackName, params.ArtistName, params.AlbumName)
+		writeV1JSON(w, http.StatusOK, map[string]string{"id": id})
+	}))
+
+	s.mux.Handle("POST /api/v1/jobs/legacy/skip", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			ItemID   string `json:"item_id"`
+			FilePath string `json:"file_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		a.SkipDownloadItem(params.ItemID, params.FilePath)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	s.mux.Handle("POST /api/v1/jobs/legacy/fail", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			ItemID   string `json:"item_id"`
+			ErrorMsg string `json:"error_msg"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		a.MarkDownloadItemFailed(params.ItemID, params.ErrorMsg)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	// ── Files (extended) ──────────────────────────────────────────────────
+	s.mux.Handle("POST /api/v1/files/sizes", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			FilePaths []string `json:"file_paths"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, a.GetFileSizes(params.FilePaths))
+	}))
+
+	s.mux.Handle("GET /api/v1/files/image", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Query().Get("path")
+		if path == "" {
+			writeV1Error(w, http.StatusBadRequest, "path query param required")
+			return
+		}
+		data, err := a.ReadImageAsBase64(path)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, map[string]string{"data": data})
+	}))
+
+	s.mux.Handle("POST /api/v1/files/read", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			FilePath string `json:"file_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		content, err := a.ReadTextFile(params.FilePath)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, map[string]string{"content": content})
+	}))
+
+	s.mux.Handle("POST /api/v1/files/rename/batch", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			Files  []string `json:"files"`
+			Format string   `json:"format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, a.RenameFilesByMetadata(params.Files, params.Format))
+	}))
+
+	s.mux.Handle("POST /api/v1/files/rename/preview", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			Files  []string `json:"files"`
+			Format string   `json:"format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, a.PreviewRenameFiles(params.Files, params.Format))
+	}))
+
+	s.mux.Handle("POST /api/v1/files/upload/image", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			Filename   string `json:"filename"`
+			Base64Data string `json:"base64_data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		url, err := a.UploadImageBytes(params.Filename, params.Base64Data)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, map[string]string{"url": url})
+	}))
+
+	s.mux.Handle("POST /api/v1/files/upload/path", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			FilePath string `json:"file_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		url, err := a.UploadImage(params.FilePath)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, map[string]string{"url": url})
+	}))
+
+	s.mux.Handle("POST /api/v1/files/m3u8", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			M3U8Name          string   `json:"m3u8_name"`
+			OutputDir         string   `json:"output_dir"`
+			FilePaths         []string `json:"file_paths"`
+			JellyfinMusicPath string   `json:"jellyfin_music_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		if err := a.CreateM3U8File(params.M3U8Name, params.OutputDir, params.FilePaths, params.JellyfinMusicPath); err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
+
+	s.mux.Handle("POST /api/v1/files/exists", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			OutputDir string                      `json:"output_dir"`
+			RootDir   string                      `json:"root_dir"`
+			Tracks    []CheckFileExistenceRequest `json:"tracks"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, a.CheckFilesExistence(params.OutputDir, params.RootDir, params.Tracks))
+	}))
+
+	// ── Audio (batch) ─────────────────────────────────────────────────────
+	s.mux.Handle("POST /api/v1/audio/analyze/batch", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		var params struct {
+			FilePaths []string `json:"file_paths"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			writeV1Error(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			return
+		}
+		result, err := a.AnalyzeMultipleTracks(params.FilePaths)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, json.RawMessage(result))
+	}))
+
+	// ── History (export) ──────────────────────────────────────────────────
+	s.mux.Handle("GET /api/v1/history/downloads/export", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		message, err := a.ExportFailedDownloads()
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeV1JSON(w, http.StatusOK, map[string]string{"message": message})
 	}))
 }
 

@@ -1,8 +1,6 @@
-// rpc.ts — client HTTP REST + fallback /api/rpc pour les méthodes sans endpoint REST
+// rpc.ts — client HTTP REST /api/v1/*
 
-const RPC_URL = "/api/rpc";
-
-// ─── Helpers REST ──────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem("spotiflac_token");
@@ -30,27 +28,6 @@ async function rest<T>(method: string, path: string, body?: unknown): Promise<T>
     throw new Error(msg);
   }
   return res.json();
-}
-
-// ─── Fallback RPC (pour les méthodes sans endpoint REST) ──────────────────────
-
-async function call<T>(method: string, params?: unknown): Promise<T> {
-  const token = localStorage.getItem("spotiflac_token");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(RPC_URL, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ method, params: params ?? null }),
-  });
-  if (res.status === 401) {
-    window.dispatchEvent(new CustomEvent("auth:expired"));
-    throw new Error("Session expired");
-  }
-  if (!res.ok) throw new Error(`RPC HTTP error: ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
-  return json.result as T;
 }
 
 // ─── Spotify ──────────────────────────────────────────────────────────────────
@@ -82,27 +59,29 @@ export const GetPreviewURL = (id: string): Promise<string> =>
 
 // ─── Download ─────────────────────────────────────────────────────────────────
 
-export const DownloadTrack          = (req: any) => call<any>("DownloadTrack", req);
-export const DownloadLyrics         = (req: any) => rest<any>("POST", "/media/lyrics", req);
-export const DownloadCover          = (req: any) => rest<any>("POST", "/media/cover", req);
-export const DownloadHeader         = (req: any) => call<any>("DownloadHeader", req);
-export const DownloadGalleryImage   = (req: any) => call<any>("DownloadGalleryImage", req);
-export const DownloadAvatar         = (req: any) => call<any>("DownloadAvatar", req);
-export const EnqueueBatch           = (req: any) => rest<any>("POST", "/jobs", req);
+export const DownloadTrack        = (req: any) => rest<any>("POST", "/downloads/track", req);
+export const DownloadLyrics       = (req: any) => rest<any>("POST", "/media/lyrics", req);
+export const DownloadCover        = (req: any) => rest<any>("POST", "/media/cover", req);
+export const DownloadHeader       = (req: any) => rest<any>("POST", "/media/header", req);
+export const DownloadGalleryImage = (req: any) => rest<any>("POST", "/media/gallery", req);
+export const DownloadAvatar       = (req: any) => rest<any>("POST", "/media/avatar", req);
+export const EnqueueBatch         = (req: any) => rest<any>("POST", "/jobs", req);
 
 // ─── Queue / Progress ─────────────────────────────────────────────────────────
 
 export const GetDownloadQueue        = () => rest<any>("GET", "/jobs");
-export const GetDownloadProgress     = () => call<any>("GetDownloadProgress");
+export const GetDownloadProgress     = () => rest<any>("GET", "/jobs/progress");
 export const ClearCompletedDownloads = () => rest<void>("DELETE", "/jobs/completed");
 export const ClearAllDownloads       = () => rest<void>("DELETE", "/jobs");
-export const CancelAllQueuedItems    = () => call<void>("CancelAllQueuedItems");
+export const CancelAllQueuedItems    = () => rest<void>("DELETE", "/jobs/pending");
 export const AddToDownloadQueue      = (spotifyId: string, trackName: string, artistName: string, albumName: string) =>
-  call<string>("AddToDownloadQueue", { spotify_id: spotifyId, track_name: trackName, artist_name: artistName, album_name: albumName });
+  rest<{ id: string }>("POST", "/jobs/legacy/enqueue", {
+    spotify_id: spotifyId, track_name: trackName, artist_name: artistName, album_name: albumName,
+  }).then(r => r.id);
 export const SkipDownloadItem        = (itemId: string, filePath: string) =>
-  call<void>("SkipDownloadItem", { item_id: itemId, file_path: filePath });
+  rest<void>("POST", "/jobs/legacy/skip", { item_id: itemId, file_path: filePath });
 export const MarkDownloadItemFailed  = (itemId: string, errorMsg: string) =>
-  call<void>("MarkDownloadItemFailed", { item_id: itemId, error_msg: errorMsg });
+  rest<void>("POST", "/jobs/legacy/fail", { item_id: itemId, error_msg: errorMsg });
 
 // ─── History ──────────────────────────────────────────────────────────────────
 
@@ -112,53 +91,59 @@ export const DeleteDownloadHistoryItem = (id: string) => rest<void>("DELETE", `/
 export const GetFetchHistory           = () => rest<any[]>("GET", "/history/fetch");
 export const AddFetchHistory           = (item: any) => rest<void>("POST", "/history/fetch", item);
 export const ClearFetchHistory         = () => rest<void>("DELETE", "/history/fetch");
-export const ClearFetchHistoryByType   = (itemType: string) => call<void>("ClearFetchHistoryByType", { item_type: itemType });
+export const ClearFetchHistoryByType   = (itemType: string) => rest<void>("DELETE", `/history/fetch?type=${encodeURIComponent(itemType)}`);
 export const DeleteFetchHistoryItem    = (id: string) => rest<void>("DELETE", `/history/fetch/${encodeURIComponent(id)}`);
+export const ExportFailedDownloads     = () =>
+  rest<{ message: string }>("GET", "/history/downloads/export").then(r => r.message);
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 export const LoadSettings  = () => rest<any>("GET", "/settings");
 export const SaveSettings  = (settings: any) => rest<void>("PUT", "/settings", settings);
-export const GetDefaults   = () => call<any>("GetDefaults");
+export const GetDefaults   = () => rest<any>("GET", "/system/defaults");
 export const GetConfigPath = () =>
-  rest<{ os: string; config_path: string; version: string }>("GET", "/system/info").then(r => r.config_path);
+  rest<{ os: string; config_path: string; home_dir: string; version: string }>("GET", "/system/info").then(r => r.config_path);
 export const GetOSInfo = () =>
-  rest<{ os: string; config_path: string; version: string }>("GET", "/system/info").then(r => r.os);
+  rest<{ os: string; config_path: string; home_dir: string; version: string }>("GET", "/system/info").then(r => r.os);
+export const GetUserHomeDir = () =>
+  rest<{ os: string; config_path: string; home_dir: string; version: string }>("GET", "/system/info").then(r => r.home_dir);
 
 // ─── FFmpeg ───────────────────────────────────────────────────────────────────
 
-export const IsFFmpegInstalled    = () => rest<boolean>("GET", "/system/ffmpeg");
-export const IsFFprobeInstalled   = () => call<boolean>("IsFFprobeInstalled");
-export const CheckFFmpegInstalled = () => rest<boolean>("GET", "/system/ffmpeg");
-export const GetFFmpegPath        = () => call<string>("GetFFmpegPath");
+type FFmpegInfo = { installed: boolean; ffprobe_installed: boolean; ffmpeg_path: string };
+export const IsFFmpegInstalled    = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.installed);
+export const IsFFprobeInstalled   = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.ffprobe_installed);
+export const CheckFFmpegInstalled = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.installed);
+export const GetFFmpegPath        = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.ffmpeg_path);
 export const DownloadFFmpeg       = () => rest<any>("POST", "/system/ffmpeg/install");
 
 // ─── Audio / File ─────────────────────────────────────────────────────────────
 
 export const ConvertAudio          = (req: any) => rest<any[]>("POST", "/audio/convert", req);
 export const AnalyzeTrack          = (filePath: string) => rest<any>("POST", "/audio/analyze", { file_path: filePath });
-export const AnalyzeMultipleTracks = (filePaths: string[]) => call<string>("AnalyzeMultipleTracks", { file_paths: filePaths });
-export const GetFileSizes          = (filePaths: string[]) => call<any>("GetFileSizes", { file_paths: filePaths });
+export const AnalyzeMultipleTracks = (filePaths: string[]) => rest<any>("POST", "/audio/analyze/batch", { file_paths: filePaths });
+export const GetFileSizes          = (filePaths: string[]) => rest<any>("POST", "/files/sizes", { file_paths: filePaths });
 export const ListDirectoryFiles    = (dirPath: string) => rest<any[]>("GET", `/files?path=${encodeURIComponent(dirPath)}`);
-export const GetUserHomeDir        = () => call<string>("GetUserHomeDir");
 export const ListAudioFilesInDir   = (dirPath: string) => rest<any[]>("GET", `/files/audio?path=${encodeURIComponent(dirPath)}`);
 export const ReadFileMetadata      = (filePath: string) => rest<any>("GET", `/files/metadata?path=${encodeURIComponent(filePath)}`);
-export const ReadImageAsBase64     = (filePath: string) => call<string>("ReadImageAsBase64", { file_path: filePath });
-export const ReadTextFile          = (filePath: string) => call<string>("ReadTextFile", { file_path: filePath });
+export const ReadImageAsBase64     = (filePath: string) =>
+  rest<{ data: string }>("GET", `/files/image?path=${encodeURIComponent(filePath)}`).then(r => r.data);
+export const ReadTextFile          = (filePath: string) =>
+  rest<{ content: string }>("POST", "/files/read", { file_path: filePath }).then(r => r.content);
 export const RenameFileTo          = (oldPath: string, newName: string) =>
   rest<void>("POST", "/files/rename", { old_path: oldPath, new_name: newName });
 export const RenameFilesByMetadata = (files: string[], format: string) =>
-  call<any[]>("RenameFilesByMetadata", { files, format });
+  rest<any[]>("POST", "/files/rename/batch", { files, format });
 export const PreviewRenameFiles    = (files: string[], format: string) =>
-  call<any[]>("PreviewRenameFiles", { files, format });
-export const UploadImage           = (filePath: string) => call<string>("UploadImage", { file_path: filePath });
+  rest<any[]>("POST", "/files/rename/preview", { files, format });
+export const UploadImage           = (filePath: string) =>
+  rest<{ url: string }>("POST", "/files/upload/path", { file_path: filePath }).then(r => r.url);
 export const UploadImageBytes      = (filename: string, base64Data: string) =>
-  call<string>("UploadImageBytes", { filename, base64_data: base64Data });
+  rest<{ url: string }>("POST", "/files/upload/image", { filename, base64_data: base64Data }).then(r => r.url);
 export const CreateM3U8File        = (m3u8Name: string, outputDir: string, filePaths: string[], jellyfinMusicPath: string) =>
-  call<void>("CreateM3U8File", { m3u8_name: m3u8Name, output_dir: outputDir, file_paths: filePaths, jellyfin_music_path: jellyfinMusicPath });
+  rest<void>("POST", "/files/m3u8", { m3u8_name: m3u8Name, output_dir: outputDir, file_paths: filePaths, jellyfin_music_path: jellyfinMusicPath });
 export const CheckFilesExistence   = (outputDir: string, rootDir: string, tracks: any[]) =>
-  call<any[]>("CheckFilesExistence", { output_dir: outputDir, root_dir: rootDir, tracks });
-export const ExportFailedDownloads = () => call<string>("ExportFailedDownloads");
+  rest<any[]>("POST", "/files/exists", { output_dir: outputDir, root_dir: rootDir, tracks });
 
 // ─── Folder / File (désactivés en web, l'UI utilise des champs texte) ─────────
 
@@ -178,6 +163,3 @@ export const UpdateWatchlist     = (req: { id: string; interval_hours: number; s
 export const GetWatchlistStats   = (id: string) => rest<any>("GET", `/watchlists/${encodeURIComponent(id)}/stats`);
 export const GetWatchlistHistory = (id: string) => rest<any[]>("GET", `/watchlists/${encodeURIComponent(id)}/history`);
 export const SyncWatchlist       = (id: string) => rest<void>("POST", `/watchlists/${encodeURIComponent(id)}/sync`);
-// Gardés pour compatibilité (ne plus utiliser dans l'UI)
-export const RedownloadWatchlist = (id: string) => call<void>("RedownloadWatchlist", { id });
-export const ForceSyncWatchlist  = (id: string) => call<void>("ForceSyncWatchlist", { id });
