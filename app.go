@@ -16,10 +16,11 @@ import (
 
 type App struct {
 	ctx context.Context
+	ctr *Container
 }
 
-func NewApp() *App {
-	return &App{}
+func NewApp(ctr *Container) *App {
+	return &App{ctr: ctr}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -49,7 +50,7 @@ func (a *App) GetStreamingURLs(spotifyTrackID string, region string) (string, er
 		return "", fmt.Errorf("spotify track ID is required")
 	}
 	fmt.Printf("[GetStreamingURLs] Called for track ID: %s, Region: %s\n", spotifyTrackID, region)
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		return "", fmt.Errorf("job manager not initialized")
 	}
@@ -231,7 +232,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 	}
 
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		return DownloadResponse{Success: false, Error: "JobManager not initialized"}, fmt.Errorf("job manager not initialized")
 	}
@@ -338,7 +339,7 @@ func (a *App) GetDefaults() map[string]string {
 }
 
 func (a *App) GetDownloadProgress() backend.ProgressInfo {
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		return backend.GetDownloadProgress()
 	}
@@ -354,7 +355,7 @@ func (a *App) GetDownloadProgress() backend.ProgressInfo {
 }
 
 func (a *App) GetDownloadQueue() backend.DownloadQueueInfo {
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		return backend.GetDownloadQueue()
 	}
@@ -429,7 +430,7 @@ func (a *App) GetDownloadQueue() backend.DownloadQueueInfo {
 }
 
 func (a *App) ClearCompletedDownloads() {
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		backend.ClearDownloadQueue()
 		return
@@ -438,7 +439,7 @@ func (a *App) ClearCompletedDownloads() {
 }
 
 func (a *App) ClearAllDownloads() {
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		backend.ClearAllDownloads()
 		return
@@ -751,7 +752,7 @@ func (a *App) CheckTrackAvailability(spotifyTrackID string) (string, error) {
 	if spotifyTrackID == "" {
 		return "", fmt.Errorf("spotify track ID is required")
 	}
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		return "", fmt.Errorf("job manager not initialized")
 	}
@@ -1159,7 +1160,7 @@ func jobStatusToDownloadStatus(s JobStatus) backend.DownloadStatus {
 }
 
 func (a *App) EnqueueBatch(req EnqueueBatchRequest) (EnqueueBatchResponse, error) {
-	jm := GetJobManager()
+	jm := a.ctr.Jobs
 	if jm == nil {
 		return EnqueueBatchResponse{}, fmt.Errorf("job manager not initialized")
 	}

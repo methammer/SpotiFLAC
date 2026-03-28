@@ -59,67 +59,45 @@ type AddWatchlistResponse struct {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Watcher — singleton
+// Watcher
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Watcher struct {
 	jm     *JobManager
+	auth   *AuthManager
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.Mutex // FIX #2 — protège les écritures concurrentes sur les watchlists
 }
 
-var (
-	globalWatcher *Watcher
-	watcherOnce   sync.Once
-)
-
-func GetWatcher() *Watcher {
-	return globalWatcher
-}
-
-// InitWatcher démarre le daemon de surveillance des playlists.
-func InitWatcher(jm *JobManager) {
-	watcherOnce.Do(func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		globalWatcher = &Watcher{
-			jm:     jm,
-			ctx:    ctx,
-			cancel: cancel,
-		}
-		go globalWatcher.daemon()
-		fmt.Println("[Watcher] Daemon started")
-	})
-}
-
-// CloseWatcher arrête le daemon.
-func CloseWatcher() {
-	if globalWatcher != nil {
-		globalWatcher.cancel()
+// NewWatcher crée et démarre le daemon de surveillance des playlists.
+func NewWatcher(jm *JobManager, auth *AuthManager) *Watcher {
+	ctx, cancel := context.WithCancel(context.Background())
+	w := &Watcher{
+		jm:     jm,
+		auth:   auth,
+		ctx:    ctx,
+		cancel: cancel,
 	}
+	go w.daemon()
+	fmt.Println("[Watcher] Daemon started")
+	return w
+}
+
+// Close arrête le daemon.
+func (w *Watcher) Close() {
+	w.cancel()
 }
 
 // daemon tourne en permanence et vérifie toutes les 5 minutes
 // si des playlists doivent être synchronisées.
-// FIX #1 — cleanupTicker intégré dans le for/select (était créé mais jamais consommé)
+// Le cleanup périodique est délégué au JobManager (cleanupLoop).
 func (w *Watcher) daemon() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	// FIX #1 — cleanup toutes les 24h, intégré dans le select
-	cleanupTicker := time.NewTicker(24 * time.Hour)
-	defer cleanupTicker.Stop()
-
 	// Vérifier immédiatement au démarrage
 	w.checkAll()
-
-	// Premier cleanup différé de 5 minutes (laisser le temps aux workers de démarrer)
-	go func() {
-		time.Sleep(5 * time.Minute)
-		if jm := GetJobManager(); jm != nil {
-			jm.CleanupOldJobs()
-		}
-	}()
 
 	for {
 		select {
@@ -128,16 +106,6 @@ func (w *Watcher) daemon() {
 			return
 		case <-ticker.C:
 			w.checkAll()
-		// FIX #1 — cleanupTicker.C maintenant consommé → cleanup tourne toutes les 24h
-		case <-cleanupTicker.C:
-			if jm := GetJobManager(); jm != nil {
-				deleted, err := jm.CleanupOldJobs()
-				if err != nil {
-					fmt.Printf("[Watcher] Cleanup error: %v\n", err)
-				} else if deleted > 0 {
-					fmt.Printf("[Watcher] Cleanup: %d old jobs deleted\n", deleted)
-				}
-			}
 		}
 	}
 }
@@ -240,7 +208,7 @@ func (w *Watcher) syncPlaylist(pl WatchedPlaylist) {
 		for _, id := range currentTrackIDs {
 			currentSet[id] = true
 		}
-		jm := GetJobManager()
+		jm := w.jm
 		allPlaylists, _ := w.GetWatchlists()
 		otherWatchlistIDs := make(map[string]bool)
 		for _, other := range allPlaylists {
@@ -482,14 +450,10 @@ func (w *Watcher) SyncWatchlist(id string) error {
 	go w.syncPlaylist(*pl)
 
 	// ── 2. Retry des jobs failed ─────────────────────────────────────────
-	jm := GetJobManager()
-	if jm != nil {
-		requeued, err := jm.RequeueFailedJobs(id)
-		if err != nil {
-			fmt.Printf("[Watcher] SyncWatchlist: RequeueFailedJobs error: %v\n", err)
-		} else if requeued > 0 {
-			fmt.Printf("[Watcher] SyncWatchlist: %d failed jobs requeued for %s\n", requeued, pl.Name)
-		}
+	if requeued, err := w.jm.RequeueFailedJobs(id); err != nil {
+		fmt.Printf("[Watcher] SyncWatchlist: RequeueFailedJobs error: %v\n", err)
+	} else if requeued > 0 {
+		fmt.Printf("[Watcher] SyncWatchlist: %d failed jobs requeued for %s\n", requeued, pl.Name)
 	}
 
 	return nil
@@ -550,6 +514,41 @@ func (w *Watcher) RedownloadWatchlist(id string) error {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers — parsing de la réponse GetFilteredSpotifyData
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JobEventHandler — implémentation
+// ─────────────────────────────────────────────────────────────────────────────
+
+// OnPermanentFailure implémente JobEventHandler.
+// Retire le track des TrackIDs pour qu'il soit réessayé au prochain sync.
+func (w *Watcher) OnPermanentFailure(watchlistID, spotifyID string) {
+	w.RemoveTrackID(watchlistID, spotifyID)
+}
+
+// OnBatchComplete implémente JobEventHandler.
+// Met à jour le dernier SyncLog et génère le M3U8 si activé.
+func (w *Watcher) OnBatchComplete(watchlistID string, downloaded, skipped, failed int) {
+	playlists, err := w.GetWatchlists()
+	if err != nil {
+		return
+	}
+	for _, pl := range playlists {
+		if pl.ID != watchlistID {
+			continue
+		}
+		if len(pl.SyncLogs) > 0 {
+			last := &pl.SyncLogs[len(pl.SyncLogs)-1]
+			last.Downloaded = downloaded
+			last.Skipped = skipped
+			last.Failed = failed
+			if saveErr := w.saveWatchlist(&pl); saveErr != nil {
+				fmt.Printf("[Watcher] Failed to save sync log: %v\n", saveErr)
+			}
+		}
+		go w.generateM3U8ForPlaylist(pl)
+		return
+	}
+}
 
 // RemoveTrackID retire un spotify_id des TrackIDs d'une watchlist (appelé après échec permanent).
 func (w *Watcher) RemoveTrackID(watchlistID, spotifyID string) {
@@ -870,11 +869,8 @@ type WatchlistStats struct {
 }
 
 func (w *Watcher) GetWatchlistStats(watchlistID string) (WatchlistStats, error) {
-	jm := GetJobManager()
+	jm := w.jm
 	stats := WatchlistStats{WatchlistID: watchlistID}
-	if jm == nil {
-		return stats, nil
-	}
 
 	// Source de vérité : TrackIDs de la playlist
 	pl, err := w.getWatchlistByID(watchlistID)
@@ -933,11 +929,7 @@ type WatchlistHistoryItem struct {
 
 // FIX #6 — sort.Slice à la place du tri O(n²)
 func (w *Watcher) GetWatchlistHistory(watchlistID string) ([]WatchlistHistoryItem, error) {
-	jm := GetJobManager()
-	if jm == nil {
-		return nil, nil
-	}
-	jobs, err := jm.GetAllJobs()
+	jobs, err := w.jm.GetAllJobs()
 	if err != nil {
 		return nil, err
 	}
@@ -971,11 +963,9 @@ func (w *Watcher) GetWatchlistHistory(watchlistID string) ([]WatchlistHistoryIte
 func (w *Watcher) generateM3U8ForPlaylist(pl WatchedPlaylist) {
 	app := &App{}
 	var settings map[string]interface{}
-	if pl.UserID != "" {
-		if auth := GetAuthManager(); auth != nil {
-			if profile, err2 := auth.GetUser(pl.UserID); err2 == nil && profile != nil && len(profile.Settings) > 0 {
-				settings = profile.Settings
-			}
+	if pl.UserID != "" && w.auth != nil {
+		if profile, err2 := w.auth.GetUser(pl.UserID); err2 == nil && profile != nil && len(profile.Settings) > 0 {
+			settings = profile.Settings
 		}
 	}
 	if settings == nil {
@@ -992,10 +982,6 @@ func (w *Watcher) generateM3U8ForPlaylist(pl WatchedPlaylist) {
 	}
 	jellyfinPath, _ := settings["jellyfinMusicPath"].(string)
 
-	jm := GetJobManager()
-	if jm == nil {
-		return
-	}
 	outputDir := pl.Settings.DownloadPath
 	if outputDir == "" {
 		outputDir = "/home/nonroot/Music"
@@ -1005,7 +991,7 @@ func (w *Watcher) generateM3U8ForPlaylist(pl WatchedPlaylist) {
 		pos  int
 		path string
 	}
-	jobs, err := jm.GetAllJobs()
+	jobs, err := w.jm.GetAllJobs()
 	if err != nil {
 		return
 	}

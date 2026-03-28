@@ -90,22 +90,15 @@ type AuthManager struct {
 	db *bolt.DB
 }
 
-var globalAuth *AuthManager
-
-func GetAuthManager() *AuthManager {
-	return globalAuth
-}
-
-func InitAuth(db *bolt.DB) error {
+func NewAuthManager(db *bolt.DB) (*AuthManager, error) {
 	err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(bucketUsers)
 		return err
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	globalAuth = &AuthManager{db: db}
-	return nil
+	return &AuthManager{db: db}, nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -131,7 +131,21 @@ type EnqueueBatchResponse struct {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// JobManager — singleton
+// JobEventHandler — interface implémentée par Watcher pour casser la
+// dépendance circulaire jobs↔watcher.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type JobEventHandler interface {
+	// OnPermanentFailure est appelé quand un job échoue de façon permanente
+	// (pas un timeout/rate-limit) pour qu'un retry automatique ne reboucle pas.
+	OnPermanentFailure(watchlistID, spotifyID string)
+	// OnBatchComplete est appelé quand tous les jobs d'une watchlist sont
+	// terminés : met à jour le SyncLog et génère le M3U8.
+	OnBatchComplete(watchlistID string, downloaded, skipped, failed int)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JobManager
 // ─────────────────────────────────────────────────────────────────────────────
 
 type JobManager struct {
@@ -139,88 +153,102 @@ type JobManager struct {
 	queue          chan string // job IDs à traiter
 	songLinkSem    chan struct{}
 	songLinkClient *backend.SongLinkClient
+	eventHandler   JobEventHandler
+	hub            *SSEHub
 	wg             sync.WaitGroup
 	ctx            context.Context
 	cancel         context.CancelFunc
 	mu             sync.RWMutex
-	// FIX #1 — guard contre double CloseJobManager
-	closed     bool
+	// guard contre double Close
 	closedOnce sync.Once
 }
 
-var (
-	globalJobManager *JobManager
-	jobManagerOnce   sync.Once
-)
-
-func GetJobManager() *JobManager {
-	return globalJobManager
+// SetEventHandler connecte le handler d'événements (typiquement *Watcher).
+// Doit être appelé avant le premier EnqueueBatch.
+func (jm *JobManager) SetEventHandler(h JobEventHandler) {
+	jm.eventHandler = h
 }
 
-// InitJobManager initialise la BoltDB et démarre les workers.
-func InitJobManager(configDir string) error {
-	var initErr error
-	jobManagerOnce.Do(func() {
-		dbPath := filepath.Join(configDir, dbFile)
-
-		db, err := bolt.Open(dbPath, 0600, &bolt.Options{Timeout: 2 * time.Second})
-		if err != nil {
-			initErr = fmt.Errorf("failed to open jobs DB: %v", err)
-			return
+// NewJobManager ouvre la BoltDB, crée les buckets, démarre les workers
+// et le goroutine de cleanup périodique.
+func NewJobManager(configDir string, db *bolt.DB) (*JobManager, error) {
+	err := db.Update(func(tx *bolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists(bucketJobs); err != nil {
+			return err
 		}
-
-		err = db.Update(func(tx *bolt.Tx) error {
-			if _, err := tx.CreateBucketIfNotExists(bucketJobs); err != nil {
-				return err
-			}
-			if _, err := tx.CreateBucketIfNotExists(bucketWatchlist); err != nil {
-				return err
-			}
-			return nil
-		})
-		if err != nil {
-			initErr = fmt.Errorf("failed to init DB buckets: %v", err)
-			return
+		if _, err := tx.CreateBucketIfNotExists(bucketWatchlist); err != nil {
+			return err
 		}
-
-		ctx, cancel := context.WithCancel(context.Background())
-
-		jm := &JobManager{
-			db:             db,
-			queue:          make(chan string, 10000),
-			songLinkSem:    make(chan struct{}, 1),
-			songLinkClient: backend.GetSongLinkClient(),
-			ctx:            ctx,
-			cancel:         cancel,
-		}
-
-		globalJobManager = jm
-
-		jm.recoverPendingJobs()
-
-		for i := 0; i < jobWorkers; i++ {
-			jm.wg.Add(1)
-			go jm.worker(i)
-		}
-
-		fmt.Printf("[Jobs] Manager started (%d workers, db: %s)\n", jobWorkers, dbPath)
+		return nil
 	})
-	return initErr
+	if err != nil {
+		return nil, fmt.Errorf("failed to init DB buckets: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	jm := &JobManager{
+		db:             db,
+		queue:          make(chan string, 10000),
+		songLinkSem:    make(chan struct{}, 1),
+		songLinkClient: backend.GetSongLinkClient(),
+		hub:            newSSEHub(),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	jm.recoverPendingJobs()
+
+	for i := 0; i < jobWorkers; i++ {
+		jm.wg.Add(1)
+		go jm.worker(i)
+	}
+
+	go jm.cleanupLoop()
+
+	fmt.Printf("[Jobs] Manager started (%d workers, db: %s)\n", jobWorkers, filepath.Join(configDir, dbFile))
+	return jm, nil
 }
 
-// CloseJobManager arrête proprement les workers et ferme la DB.
-// FIX #1 — closedOnce garantit qu'on ne ferme jamais le canal deux fois.
-func CloseJobManager() {
-	if globalJobManager == nil {
+// notifyJob publie un événement job_update vers tous les clients SSE connectés.
+func (jm *JobManager) notifyJob(job *Job) {
+	if jm.hub != nil {
+		jm.hub.publish(JobEvent{Type: "job_update", Job: job})
+	}
+}
+
+// cleanupLoop exécute CleanupOldJobs après 5 minutes puis toutes les 24h.
+func (jm *JobManager) cleanupLoop() {
+	select {
+	case <-time.After(5 * time.Minute):
+	case <-jm.ctx.Done():
 		return
 	}
-	globalJobManager.closedOnce.Do(func() {
+	if deleted, err := jm.CleanupOldJobs(); err == nil && deleted > 0 {
+		fmt.Printf("[Jobs] Cleanup: %d old jobs deleted\n", deleted)
+	}
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-jm.ctx.Done():
+			return
+		case <-ticker.C:
+			if deleted, err := jm.CleanupOldJobs(); err == nil && deleted > 0 {
+				fmt.Printf("[Jobs] Cleanup: %d old jobs deleted\n", deleted)
+			}
+		}
+	}
+}
+
+// Close arrête proprement les workers.
+// FIX #1 — closedOnce garantit qu'on ne ferme jamais le canal deux fois.
+func (jm *JobManager) Close() {
+	jm.closedOnce.Do(func() {
 		fmt.Println("[Jobs] Shutting down...")
-		globalJobManager.closed = true
-		globalJobManager.cancel()
-		close(globalJobManager.queue)
-		globalJobManager.wg.Wait()
-		globalJobManager.db.Close()
+		jm.cancel()
+		close(jm.queue)
+		jm.wg.Wait()
 		fmt.Println("[Jobs] Shutdown complete")
 	})
 }
@@ -293,6 +321,7 @@ func (jm *JobManager) EnqueueBatch(req EnqueueBatchRequest) (EnqueueBatchRespons
 			skipped++
 			continue
 		}
+		jm.notifyJob(job)
 
 		select {
 		case jm.queue <- job.ID:
@@ -350,6 +379,7 @@ func (jm *JobManager) processJob(jobID string) {
 	job.UpdatedAt = time.Now()
 	job.StartedAt = time.Now()
 	jm.saveJob(job)
+	jm.notifyJob(job)
 	backend.StartDownloadItem(job.ID)
 
 	outputDir := jm.buildOutputDir(job)
@@ -360,6 +390,7 @@ func (jm *JobManager) processJob(jobID string) {
 		job.FilePath = existingPath
 		job.UpdatedAt = time.Now()
 		jm.saveJob(job)
+		jm.notifyJob(job)
 		backend.SkipDownloadItem(job.ID, existingPath)
 		return
 	}
@@ -380,7 +411,8 @@ func (jm *JobManager) processJob(jobID string) {
 		job.Error = errMsg
 		job.UpdatedAt = time.Now()
 		jm.saveJob(job)
-		if job.WatchlistID != "" && job.SpotifyID != "" {
+		jm.notifyJob(job)
+		if job.WatchlistID != "" && job.SpotifyID != "" && jm.eventHandler != nil {
 			isPermanentFailure := true
 			temporaryPatterns := []string{"429", "rate limit", "timeout", "connection refused", "context deadline", "no such host", "dial tcp", "yoinkify", "deezmate", "lookup"}
 			for _, pattern := range temporaryPatterns {
@@ -390,7 +422,7 @@ func (jm *JobManager) processJob(jobID string) {
 				}
 			}
 			if isPermanentFailure {
-				GetWatcher().RemoveTrackID(job.WatchlistID, job.SpotifyID)
+				jm.eventHandler.OnPermanentFailure(job.WatchlistID, job.SpotifyID)
 			}
 		}
 		return
@@ -406,6 +438,7 @@ func (jm *JobManager) processJob(jobID string) {
 	}
 	job.UpdatedAt = time.Now()
 	jm.saveJob(job)
+	jm.notifyJob(job)
 	fmt.Printf("[Jobs] Done: %s\n", job.TrackName)
 
 	if job.WatchlistID != "" {
@@ -982,6 +1015,7 @@ func (jm *JobManager) RequeueFailedJobs(watchlistID string) (int, error) {
 			fmt.Printf("[Jobs] RequeueFailed: failed to save job %s: %v\n", job.ID, err)
 			continue
 		}
+		jm.notifyJob(&job)
 		backend.AddToQueue(job.ID, job.TrackName, job.ArtistName, job.AlbumName, job.SpotifyID)
 		select {
 		case jm.queue <- job.ID:
@@ -1031,27 +1065,7 @@ func (jm *JobManager) maybeGenerateM3U8(watchlistID string) {
 		}
 	}
 
-	watcher := GetWatcher()
-	if watcher == nil {
-		return
-	}
-	playlists, err := watcher.GetWatchlists()
-	if err != nil {
-		return
-	}
-	for _, pl := range playlists {
-		if pl.ID == watchlistID {
-			if len(pl.SyncLogs) > 0 {
-				last := &pl.SyncLogs[len(pl.SyncLogs)-1]
-				last.Downloaded = downloaded
-				last.Skipped = skipped
-				last.Failed = failed
-				if saveErr := watcher.saveWatchlist(&pl); saveErr != nil {
-					fmt.Printf("[Watcher] Failed to save sync log: %v\n", saveErr)
-				}
-			}
-			go watcher.generateM3U8ForPlaylist(pl)
-			return
-		}
+	if jm.eventHandler != nil {
+		jm.eventHandler.OnBatchComplete(watchlistID, downloaded, skipped, failed)
 	}
 }
