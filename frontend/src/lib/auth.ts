@@ -60,7 +60,7 @@ export async function fetchMe(): Promise<AuthUser | null> {
 // Tente un login automatique si DISABLE_AUTH_ON_LAN=true et IP locale
 export async function tryLocalAuth(): Promise<AuthUser | null> {
   try {
-    const resp = await fetch("/auth/local", { method: "POST" });
+    const resp = await fetch("/api/v1/auth/local", { method: "POST" });
     if (!resp.ok) return null;
     const data = await resp.json();
     if (!data.token) return null;

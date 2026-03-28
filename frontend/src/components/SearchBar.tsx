@@ -7,7 +7,6 @@ import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/toolti
 import { FetchHistory } from "@/components/FetchHistory";
 import type { HistoryItem } from "@/components/FetchHistory";
 import { SearchSpotify, SearchSpotifyByType } from "@/lib/rpc";
-import { backend } from "../../wailsjs/go/models";
 import { cn } from "@/lib/utils";
 import { useTypingEffect } from "@/hooks/useTypingEffect";
 import { getSettings, updateSettings } from "@/lib/settings";
@@ -250,7 +249,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         return () => window.removeEventListener("settingsUpdated", handler);
     }, []);
     const [searchQuery, setSearchQuery] = useState("");
-    const [searchResults, setSearchResults] = useState<backend.SearchResponse | null>(null);
+    const [searchResults, setSearchResults] = useState<any | null>(null);
     const [isSearching, setIsSearching] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [lastSearchedQuery, setLastSearchedQuery] = useState("");
@@ -377,7 +376,8 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                 setSearchResults((prev) => {
                     if (!prev)
                         return prev;
-                    const updated = new backend.SearchResponse({
+                    return {
+                        ...prev,
                         tracks: activeTab === "tracks"
                             ? [...prev.tracks, ...moreResults]
                             : prev.tracks,
@@ -390,8 +390,7 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
                         playlists: activeTab === "playlists"
                             ? [...prev.playlists, ...moreResults]
                             : prev.playlists,
-                    });
-                    return updated;
+                    };
                 });
             }
             setHasMore((prev) => ({

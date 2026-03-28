@@ -102,6 +102,23 @@ func (s *Server) registerV1Routes() {
 
 	// ── Auth & API Keys ───────────────────────────────────────────────────
 	s.mux.Handle("POST /api/v1/auth/login", v1CORSMiddleware(http.HandlerFunc(s.v1Login)))
+
+	s.mux.Handle("POST /api/v1/auth/local", v1CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !localBypassEnabled() || !isLocalIP(r) {
+			writeV1Error(w, http.StatusForbidden, "local bypass not enabled")
+			return
+		}
+		profile := &UserProfile{ID: "local-admin", DisplayName: "Local Admin", IsAdmin: true}
+		token, err := GenerateJWT(profile)
+		if err != nil {
+			writeV1Error(w, http.StatusInternalServerError, "failed to generate token")
+			return
+		}
+		writeV1JSON(w, http.StatusOK, map[string]interface{}{
+			"token": token,
+			"user":  map[string]interface{}{"id": profile.ID, "display_name": profile.DisplayName, "is_admin": profile.IsAdmin},
+		})
+	})))
 	s.mux.Handle("GET /api/v1/auth/me", s.v1Auth(s.v1Me))
 	s.mux.Handle("GET /api/v1/auth/keys", s.v1Auth(s.v1ListAPIKeys))
 	s.mux.Handle("POST /api/v1/auth/keys", s.v1Auth(s.v1CreateAPIKey))

@@ -8,7 +8,6 @@ import { FolderOpen, RefreshCw, FileMusic, ChevronRight, ChevronDown, Pencil, Ey
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
-import { backend } from "../../wailsjs/go/models";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { getSettings } from "@/lib/settings";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
@@ -99,7 +98,7 @@ export function FileManagerPage() {
     });
     const renameFormat = formatPreset === "custom" ? (customFormat || FORMAT_PRESETS["custom"].template) : FORMAT_PRESETS[formatPreset].template;
     const [showPreview, setShowPreview] = useState(false);
-    const [previewData, setPreviewData] = useState<backend.RenamePreview[]>([]);
+    const [previewData, setPreviewData] = useState<any[]>([]);
     const [renaming, setRenaming] = useState(false);
     const [previewOnly, setPreviewOnly] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -390,8 +389,8 @@ export function FileManagerPage() {
         setRenaming(true);
         try {
             const result = await RenameFilesByMetadata(Array.from(selectedFiles), renameFormat);
-            const successCount = result.filter((r: backend.RenameResult) => r.success).length;
-            const failCount = result.filter((r: backend.RenameResult) => !r.success).length;
+            const successCount = result.filter((r: any) => r.success).length;
+            const failCount = result.filter((r: any) => !r.success).length;
             if (successCount > 0)
                 toast.success("Rename Complete", { description: `${successCount} file(s) renamed${failCount > 0 ? `, ${failCount} failed` : ""}` });
             else

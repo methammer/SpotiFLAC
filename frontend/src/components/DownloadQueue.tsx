@@ -5,13 +5,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, } from "@/components/
 import { Badge } from "@/components/ui/badge";
 import { GetDownloadQueue, ClearCompletedDownloads, ClearAllDownloads, ExportFailedDownloads } from "@/lib/rpc";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
-import { backend } from "../../wailsjs/go/models";
 interface DownloadQueueProps {
     isOpen: boolean;
     onClose: () => void;
 }
 export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
-    const [queueInfo, setQueueInfo] = useState<backend.DownloadQueueInfo>(new backend.DownloadQueueInfo({
+    const [queueInfo, setQueueInfo] = useState<any>({
         is_downloading: false,
         queue: [],
         current_speed: 0,
@@ -21,7 +20,7 @@ export function DownloadQueue({ isOpen, onClose }: DownloadQueueProps) {
         completed_count: 0,
         failed_count: 0,
         skipped_count: 0,
-    }));
+    });
     useEffect(() => {
         if (!isOpen)
             return;
