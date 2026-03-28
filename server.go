@@ -27,16 +27,18 @@ var frontendFS embed.FS
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Server struct {
-	app *App
-	ctr *Container
-	mux *http.ServeMux
+	app      *App
+	ctr      *Container
+	mux      *http.ServeMux
+	loginRL  *LoginRateLimiter
 }
 
 func NewServer(app *App, ctr *Container) *Server {
 	s := &Server{
-		app: app,
-		ctr: ctr,
-		mux: http.NewServeMux(),
+		app:     app,
+		ctr:     ctr,
+		mux:     http.NewServeMux(),
+		loginRL: NewLoginRateLimiter(),
 	}
 	s.registerRoutes()
 	s.registerV1Routes()

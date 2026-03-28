@@ -1028,6 +1028,11 @@ func (s *Server) registerV1Routes() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (s *Server) v1Login(w http.ResponseWriter, r *http.Request) {
+	if !s.loginRL.Allow(remoteIP(r)) {
+		w.Header().Set("Retry-After", "300")
+		writeV1Error(w, http.StatusTooManyRequests, "too many login attempts, please wait 5 minutes")
+		return
+	}
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
