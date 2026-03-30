@@ -18,12 +18,25 @@ const (
 )
 
 // DeviceAuthResponse est la réponse de l'endpoint device_authorization.
+// Tidal retourne du camelCase (deviceCode, verificationUriComplete…).
+// Les tags JSON correspondent à la réponse Tidal ; on renomme en snake_case
+// pour la sérialisation vers le frontend.
 type DeviceAuthResponse struct {
 	DeviceCode              string `json:"device_code"`
 	UserCode                string `json:"user_code"`
 	VerificationURI         string `json:"verification_uri"`
 	VerificationURIComplete string `json:"verification_uri_complete"`
 	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval"`
+}
+
+// tidalDeviceAuthRaw reflète le format camelCase retourné par Tidal.
+type tidalDeviceAuthRaw struct {
+	DeviceCode              string `json:"deviceCode"`
+	UserCode                string `json:"userCode"`
+	VerificationURI         string `json:"verificationUri"`
+	VerificationURIComplete string `json:"verificationUriComplete"`
+	ExpiresIn               int    `json:"expiresIn"`
 	Interval                int    `json:"interval"`
 }
 
@@ -55,17 +68,33 @@ func StartTidalDeviceAuth() (*DeviceAuthResponse, error) {
 		return nil, fmt.Errorf("Tidal API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result DeviceAuthResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	var raw tidalDeviceAuthRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	result := &DeviceAuthResponse{
+		DeviceCode:              raw.DeviceCode,
+		UserCode:                raw.UserCode,
+		VerificationURI:         raw.VerificationURI,
+		VerificationURIComplete: raw.VerificationURIComplete,
+		ExpiresIn:               raw.ExpiresIn,
+		Interval:                raw.Interval,
 	}
 
 	// Interval par défaut si absent
 	if result.Interval == 0 {
 		result.Interval = 5
 	}
+	// Fallback si le champ complete est absent
+	if result.VerificationURIComplete == "" {
+		result.VerificationURIComplete = result.VerificationURI
+	}
 
-	return &result, nil
+	fmt.Printf("[Tidal] Device auth started — user_code=%s verification_uri=%s\n",
+		result.UserCode, result.VerificationURIComplete)
+
+	return result, nil
 }
 
 // PollTidalDeviceAuth tente d'échanger le device_code contre un token.
