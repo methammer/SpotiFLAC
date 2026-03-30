@@ -17,6 +17,7 @@ import (
 var (
 	pkceVerifier      string
 	pkceClientID      string // client_id utilisé pour générer l'URL — doit être réutilisé à l'échange
+	pkceRedirectURI   string // redirect_uri correspondante — doit correspondre au client_id
 	pkceVerifierMutex sync.Mutex
 )
 
@@ -26,25 +27,25 @@ func generateRandomString(n int) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// GenerateTidalAuthURL génère le lien de connexion PKCE pour le client Web Tidal.
-// Le client_id est auto-découvert depuis listen.tidal.com (mis en cache 24h).
+// GenerateTidalAuthURL génère le lien de connexion PKCE.
+// Utilise les credentials auto-découverts (web player) ou Android en fallback.
 func GenerateTidalAuthURL() string {
-	clientID := GetTidalClientID()
+	creds := GetTidalCredentials()
 
 	pkceVerifierMutex.Lock()
 	defer pkceVerifierMutex.Unlock()
 
 	pkceVerifier = generateRandomString(32)
-	pkceClientID = clientID
+	pkceClientID = creds.ClientID
+	pkceRedirectURI = creds.RedirectURI
+
 	hash := sha256.Sum256([]byte(pkceVerifier))
 	challenge := base64.RawURLEncoding.EncodeToString(hash[:])
 
-	redirectURI := "https://listen.tidal.com/login/auth"
-
 	params := url.Values{}
-	params.Add("client_id", clientID)
+	params.Add("client_id", creds.ClientID)
 	params.Add("response_type", "code")
-	params.Add("redirect_uri", redirectURI)
+	params.Add("redirect_uri", creds.RedirectURI)
 	params.Add("code_challenge", challenge)
 	params.Add("code_challenge_method", "S256")
 	params.Add("lang", "en")
@@ -55,18 +56,24 @@ func GenerateTidalAuthURL() string {
 }
 
 // ExchangeTidalAuthCode échange le code d'autorisation contre un token.
-// Utilise le même client_id que lors de la génération de l'URL.
+// Utilise exactement le même client_id et redirect_uri que lors de la génération de l'URL.
 func ExchangeTidalAuthCode(redirectedURL string) error {
 	pkceVerifierMutex.Lock()
 	verifier := pkceVerifier
 	clientID := pkceClientID
+	redirectURI := pkceRedirectURI
 	pkceVerifierMutex.Unlock()
 
 	if verifier == "" {
 		return fmt.Errorf("no pending authentication found. Please generate a login URL first")
 	}
 	if clientID == "" {
-		clientID = GetTidalClientID()
+		creds := GetTidalCredentials()
+		clientID = creds.ClientID
+		redirectURI = creds.RedirectURI
+	}
+	if redirectURI == "" {
+		redirectURI = tidalWebRedirectURI
 	}
 
 	redirectedURL = strings.TrimSpace(redirectedURL)
@@ -95,7 +102,7 @@ func ExchangeTidalAuthCode(redirectedURL string) error {
 	v.Set("client_id", clientID)
 	v.Set("grant_type", "authorization_code")
 	v.Set("code", code)
-	v.Set("redirect_uri", "https://listen.tidal.com/login/auth")
+	v.Set("redirect_uri", redirectURI)
 	v.Set("code_verifier", verifier)
 
 	req, _ := http.NewRequest("POST", tokenURL, strings.NewReader(v.Encode()))
@@ -142,6 +149,7 @@ func ExchangeTidalAuthCode(redirectedURL string) error {
 	pkceVerifierMutex.Lock()
 	pkceVerifier = ""
 	pkceClientID = ""
+	pkceRedirectURI = ""
 	pkceVerifierMutex.Unlock()
 
 	return nil

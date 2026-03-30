@@ -11,48 +11,74 @@ import (
 )
 
 const (
-	tidalClientIDFallback = "CzET4vdadNUFQ5JU"
-	tidalClientIDTTL      = 24 * time.Hour
-	tidalBundleMaxBytes   = 20 * 1024 * 1024 // 20 MB
+	// Fallback web player client_id (peut être périmé — utilisé uniquement si le scraping
+	// ET l'Android fallback échouent, ce qui ne devrait jamais arriver en pratique).
+	tidalWebClientIDFallback = "CzET4vdadNUFQ5JU"
+
+	// Credentials Android — stables entre les déploiements du web player.
+	// Utilisés comme fallback si le scraping du web player échoue.
+	tidalAndroidClientID    = "6BDSRdpK9hqEBTgU"
+	tidalAndroidRedirectURI = "https://tidal.com/android/login/auth"
+
+	// Redirect URI du web player
+	tidalWebRedirectURI = "https://listen.tidal.com/login/auth"
+
+	tidalClientIDTTL    = 24 * time.Hour
+	tidalBundleMaxBytes = 20 * 1024 * 1024 // 20 MB
 )
+
+// TidalOAuthCredentials regroupe le client_id et la redirect_uri qui doivent toujours
+// être utilisés ensemble (le token exchange doit utiliser la même paire que l'auth URL).
+type TidalOAuthCredentials struct {
+	ClientID    string
+	RedirectURI string
+}
 
 var (
-	cachedClientID   string
-	cachedClientIDAt time.Time
-	clientIDMu       sync.Mutex
+	cachedClientID    string
+	cachedRedirectURI string
+	cachedClientIDAt  time.Time
+	clientIDMu        sync.Mutex
 )
 
-// GetTidalClientID retourne le client_id OAuth actuel du Tidal Web Player.
-// Priorité : override admin > cache > scraping live > fallback hardcodé.
-func GetTidalClientID() string {
-	// Vérifier l'override admin en premier (sans verrou — son propre mutex)
+// GetTidalCredentials retourne la paire (client_id, redirect_uri) à utiliser pour le flow PKCE.
+// Priorité : override admin > cache > scraping web player > fallback Android.
+func GetTidalCredentials() TidalOAuthCredentials {
+	// Override admin (sans verrou — son propre mutex dans proxy_config.go)
 	if override := GetTidalClientIDOverride(); override != "" {
-		return override
+		return TidalOAuthCredentials{ClientID: override, RedirectURI: tidalWebRedirectURI}
 	}
 
 	clientIDMu.Lock()
 	defer clientIDMu.Unlock()
 
 	if cachedClientID != "" && time.Since(cachedClientIDAt) < tidalClientIDTTL {
-		return cachedClientID
+		return TidalOAuthCredentials{ClientID: cachedClientID, RedirectURI: cachedRedirectURI}
 	}
 
 	id, err := scrapeTidalClientID()
 	if err != nil || id == "" {
-		fmt.Printf("[Tidal] client_id scraping failed (%v) — using fallback %s\n", err, tidalClientIDFallback)
-		return tidalClientIDFallback
+		fmt.Printf("[Tidal] client_id scraping failed (%v) — using Android fallback %s\n", err, tidalAndroidClientID)
+		return TidalOAuthCredentials{ClientID: tidalAndroidClientID, RedirectURI: tidalAndroidRedirectURI}
 	}
 
 	fmt.Printf("[Tidal] Scraped client_id: %s\n", id)
 	cachedClientID = id
+	cachedRedirectURI = tidalWebRedirectURI
 	cachedClientIDAt = time.Now()
-	return id
+	return TidalOAuthCredentials{ClientID: id, RedirectURI: tidalWebRedirectURI}
+}
+
+// GetTidalClientID est un helper pour les cas où seul le client_id est nécessaire.
+func GetTidalClientID() string {
+	return GetTidalCredentials().ClientID
 }
 
 // InvalidateTidalClientIDCache force le re-scraping au prochain appel.
 func InvalidateTidalClientIDCache() {
 	clientIDMu.Lock()
 	cachedClientID = ""
+	cachedRedirectURI = ""
 	clientIDMu.Unlock()
 }
 
@@ -129,8 +155,16 @@ func searchBundleForClientID(httpClient *http.Client, bundleURL, userAgent strin
 	// ── Stratégie 1 : proximité avec la redirect_uri ─────────────────────────
 	// La redirect_uri est toujours un string literal, jamais renommée.
 	// Le client_id se trouve dans le même objet de config, juste avant elle.
-	redirectMarker := []byte("listen.tidal.com/login/auth")
-	if idx := bytes.Index(bundle, redirectMarker); idx > 200 {
+	// En JS minifié webpack/vite, les slashes sont souvent échappés en \/
+	redirectMarkers := [][]byte{
+		[]byte(`listen.tidal.com\/login\/auth`), // variante échappée (la plus courante en JS minifié)
+		[]byte(`listen.tidal.com/login/auth`),   // variante non-échappée
+	}
+	for _, redirectMarker := range redirectMarkers {
+		idx := bytes.Index(bundle, redirectMarker)
+		if idx <= 200 {
+			continue
+		}
 		start := idx - 600
 		if start < 0 {
 			start = 0
@@ -149,6 +183,9 @@ func searchBundleForClientID(httpClient *http.Client, bundleURL, userAgent strin
 				return candidate, nil
 			}
 		}
+		// Le marker a été trouvé — inutile de chercher l'autre variante
+		// (elles pointent au même endroit dans le bundle).
+		break
 	}
 
 	// ── Stratégie 2 : patterns explicites (si le bundler préserve le nom) ────
@@ -168,7 +205,7 @@ func searchBundleForClientID(httpClient *http.Client, bundleURL, userAgent strin
 
 // isProbablyNotClientID écarte les candidats clairement pas des client_ids.
 func isProbablyNotClientID(s string) bool {
-	// Hashes git/build hex purs (16+ chars tout en minuscules/chiffres hex seulement)
+	// Hashes git/build hex purs (tout en minuscules/chiffres hex seulement)
 	isHex := true
 	for _, c := range s {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
