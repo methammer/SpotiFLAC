@@ -30,16 +30,6 @@ type DeviceAuthResponse struct {
 	Interval                int    `json:"interval"`
 }
 
-// tidalDeviceAuthRaw reflète le format camelCase retourné par Tidal.
-type tidalDeviceAuthRaw struct {
-	DeviceCode              string `json:"deviceCode"`
-	UserCode                string `json:"userCode"`
-	VerificationURI         string `json:"verificationUri"`
-	VerificationURIComplete string `json:"verificationUriComplete"`
-	ExpiresIn               int    `json:"expiresIn"`
-	Interval                int    `json:"interval"`
-}
-
 // DevicePollResult est le résultat d'un sondage du token endpoint.
 type DevicePollResult struct {
 	Status string `json:"status"` // "pending" | "authorized" | "expired" | "denied" | "error"
@@ -68,31 +58,57 @@ func StartTidalDeviceAuth() (*DeviceAuthResponse, error) {
 		return nil, fmt.Errorf("Tidal API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var raw tidalDeviceAuthRaw
+	// Logger le body brut pour diagnostiquer le format exact retourné par Tidal
+	fmt.Printf("[Tidal] device_authorization raw response: %s\n", string(body))
+
+	// Parser en map générique pour gérer camelCase ET snake_case
+	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	result := &DeviceAuthResponse{
-		DeviceCode:              raw.DeviceCode,
-		UserCode:                raw.UserCode,
-		VerificationURI:         raw.VerificationURI,
-		VerificationURIComplete: raw.VerificationURIComplete,
-		ExpiresIn:               raw.ExpiresIn,
-		Interval:                raw.Interval,
+	getString := func(keys ...string) string {
+		for _, k := range keys {
+			if v, ok := raw[k]; ok {
+				if s, ok := v.(string); ok {
+					return s
+				}
+			}
+		}
+		return ""
+	}
+	getInt := func(keys ...string) int {
+		for _, k := range keys {
+			if v, ok := raw[k]; ok {
+				switch n := v.(type) {
+				case float64:
+					return int(n)
+				case int:
+					return n
+				}
+			}
+		}
+		return 0
 	}
 
-	// Interval par défaut si absent
+	result := &DeviceAuthResponse{
+		DeviceCode:              getString("device_code", "deviceCode"),
+		UserCode:                getString("user_code", "userCode"),
+		VerificationURI:         getString("verification_uri", "verificationUri"),
+		VerificationURIComplete: getString("verification_uri_complete", "verificationUriComplete"),
+		ExpiresIn:               getInt("expires_in", "expiresIn"),
+		Interval:                getInt("interval"),
+	}
+
 	if result.Interval == 0 {
 		result.Interval = 5
 	}
-	// Fallback si le champ complete est absent
 	if result.VerificationURIComplete == "" {
 		result.VerificationURIComplete = result.VerificationURI
 	}
 
-	fmt.Printf("[Tidal] Device auth started — user_code=%s verification_uri=%s\n",
-		result.UserCode, result.VerificationURIComplete)
+	fmt.Printf("[Tidal] Device auth started — user_code=%q verification_uri_complete=%q device_code=%q\n",
+		result.UserCode, result.VerificationURIComplete, result.DeviceCode)
 
 	return result, nil
 }
