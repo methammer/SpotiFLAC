@@ -154,12 +154,17 @@ func PollTidalDeviceAuth(deviceCode string) DevicePollResult {
 			return DevicePollResult{Status: "error", Error: "failed to decode token: " + err.Error()}
 		}
 
+		countryCode := FetchTidalCountryCode(tokenResp.AccessToken)
+		if countryCode != "" {
+			fmt.Printf("[Tidal] Country code: %s\n", countryCode)
+		}
 		tokenData := &TidalTokenData{
 			AccessToken:  tokenResp.AccessToken,
 			RefreshToken: tokenResp.RefreshToken,
 			ExpiresIn:    tokenResp.ExpiresIn,
 			ExpiresAt:    time.Now().Unix() + int64(tokenResp.ExpiresIn),
 			ClientID:     tidalDeviceClientID,
+			CountryCode:  countryCode,
 		}
 		if err := SaveTidalToken(tokenData); err != nil {
 			return DevicePollResult{Status: "error", Error: "failed to save token: " + err.Error()}

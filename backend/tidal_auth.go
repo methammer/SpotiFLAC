@@ -20,6 +20,30 @@ type TidalTokenData struct {
 	ExpiresAt    int64  `json:"expires_at"`
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	CountryCode  string `json:"country_code,omitempty"`
+}
+
+// FetchTidalCountryCode appelle GET /v1/sessions pour récupérer le pays du compte.
+func FetchTidalCountryCode(accessToken string) string {
+	req, _ := http.NewRequest("GET", "https://api.tidal.com/v1/sessions", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Tidal-Token", tidalDeviceClientID)
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	var data struct {
+		CountryCode string `json:"countryCode"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return ""
+	}
+	return data.CountryCode
 }
 
 var (
@@ -145,6 +169,15 @@ func RefreshTidalToken(tokenData *TidalTokenData) (*TidalTokenData, error) {
 	return tokenData, nil
 }
 
+// GetTidalCountryCode retourne le pays du compte Tidal connecté, ou "US" si absent.
+func GetTidalCountryCode() string {
+	token := LoadTidalToken()
+	if token != nil && token.CountryCode != "" {
+		return token.CountryCode
+	}
+	return "US"
+}
+
 // GetValidTidalToken retourne le token courant, le rafraîchit si besoin.
 func GetValidTidalToken() (*TidalTokenData, error) {
 	token := LoadTidalToken()
@@ -162,6 +195,15 @@ func GetValidTidalToken() (*TidalTokenData, error) {
 			return nil, fmt.Errorf("tidal token expired and refresh failed")
 		}
 		return refreshedToken, nil
+	}
+
+	// Fetch country lazily pour les tokens sauvegardés avant l'ajout du champ
+	if token.CountryCode == "" {
+		if cc := FetchTidalCountryCode(token.AccessToken); cc != "" {
+			token.CountryCode = cc
+			SaveTidalToken(token)
+			fmt.Printf("[Tidal Auth] Country code fetched: %s\n", cc)
+		}
 	}
 
 	return token, nil

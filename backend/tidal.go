@@ -96,7 +96,7 @@ func (t *TidalDownloader) SearchTidalByName(trackName, artistName string) (strin
 	}
 
 	query := url.QueryEscape(cleanTrack + " " + cleanArtist)
-	apiURL := fmt.Sprintf("https://api.tidal.com/v1/search/tracks?query=%s&limit=1&countryCode=US", query)
+	apiURL := fmt.Sprintf("https://api.tidal.com/v1/search/tracks?query=%s&limit=1&countryCode=%s", query, GetTidalCountryCode())
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	req.Header.Set("x-tidal-token", GetPublicTidalToken())
@@ -208,7 +208,11 @@ func (t *TidalDownloader) GetDownloadURL(trackID int64, quality string) (string,
 	}
 
 	if token != nil {
-		url := fmt.Sprintf("https://api.tidal.com/v1/tracks/%d/playbackinfopostpaywall?countryCode=US&audioquality=%s&playbackmode=STREAM&assetpresentation=FULL", trackID, quality)
+		countryCode := token.CountryCode
+		if countryCode == "" {
+			countryCode = "US"
+		}
+		url := fmt.Sprintf("https://api.tidal.com/v1/tracks/%d/playbackinfopostpaywall?countryCode=%s&audioquality=%s&playbackmode=STREAM&assetpresentation=FULL", trackID, countryCode, quality)
 		fmt.Printf("Tidal API URL: %s\n", url)
 
 		req, err := http.NewRequest("GET", url, nil)
@@ -1108,7 +1112,7 @@ func buildTidalFilename(title, artist, album, albumArtist, releaseDate string, t
 
 // GetTidalIDFromISRC cherche un track Tidal via ISRC sur l'API officielle
 func GetTidalIDFromISRC(trackName, artistName, isrc string) (int64, string, error) {
-	apiURL := fmt.Sprintf("https://api.tidal.com/v1/tracks?countryCode=US&isrc=%s&limit=1", isrc)
+	apiURL := fmt.Sprintf("https://api.tidal.com/v1/tracks?countryCode=%s&isrc=%s&limit=1", GetTidalCountryCode(), isrc)
 
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	req.Header.Set("x-tidal-token", GetPublicTidalToken())
