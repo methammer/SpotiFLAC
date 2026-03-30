@@ -108,15 +108,6 @@ export const GetOSInfo = () =>
 export const GetUserHomeDir = () =>
   rest<{ os: string; config_path: string; home_dir: string; version: string }>("GET", "/system/info").then(r => r.home_dir);
 
-// ─── FFmpeg ───────────────────────────────────────────────────────────────────
-
-type FFmpegInfo = { installed: boolean; ffprobe_installed: boolean; ffmpeg_path: string };
-export const IsFFmpegInstalled    = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.installed);
-export const IsFFprobeInstalled   = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.ffprobe_installed);
-export const CheckFFmpegInstalled = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.installed);
-export const GetFFmpegPath        = () => rest<FFmpegInfo>("GET", "/system/ffmpeg").then(r => r.ffmpeg_path);
-export const DownloadFFmpeg       = () => rest<any>("POST", "/system/ffmpeg/install");
-
 // ─── Audio / File ─────────────────────────────────────────────────────────────
 
 export const ConvertAudio          = (req: any) => rest<any[]>("POST", "/audio/convert", req);

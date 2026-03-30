@@ -174,7 +174,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
     const [tidalStatus, setTidalStatus] = useState<TidalStatus | null>(null);
     const [tidalCallbackURL, setTidalCallbackURL] = useState("");
     const [tidalConnecting, setTidalConnecting] = useState(false);
-    const [showCallbackInput, setShowCallbackInput] = useState(false);
+    const [tidalAuthURL, setTidalAuthURL] = useState("");
 
     const loadTidalStatus = useCallback(async () => {
         try { setTidalStatus(await GetTidalStatus()); } catch { /* ignore */ }
@@ -185,8 +185,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
     const handleTidalConnect = async () => {
         try {
             const url = await GetTidalAuthURL();
-            window.open(url, "_blank");
-            setShowCallbackInput(true);
+            setTidalAuthURL(url);
         } catch (err) {
             toast.error("Failed to get Tidal auth URL", { description: err instanceof Error ? err.message : "Unknown error" });
         }
@@ -198,7 +197,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
         try {
             await SubmitTidalCallback(tidalCallbackURL.trim());
             setTidalCallbackURL("");
-            setShowCallbackInput(false);
+            setTidalAuthURL("");
             await loadTidalStatus();
             toast.success("Tidal account connected");
         } catch (err) {
@@ -212,7 +211,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
         try {
             await DisconnectTidal();
             setTidalStatus({ connected: false });
-            setShowCallbackInput(false);
+            setTidalAuthURL("");
             toast.success("Tidal account disconnected");
         } catch (err) {
             toast.error("Failed to disconnect", { description: err instanceof Error ? err.message : "Unknown error" });
@@ -1037,22 +1036,36 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
               <div className="flex items-center gap-3 border rounded-lg px-4 py-3 bg-muted/20">
                 <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground shrink-0"/>
                 <p className="text-sm flex-1">Not connected</p>
-                <Button size="sm" onClick={handleTidalConnect} className="gap-1.5">
+                <Button size="sm" onClick={handleTidalConnect} disabled={!!tidalAuthURL} className="gap-1.5">
                   <ExternalLink className="h-4 w-4"/>
-                  Connect with Tidal
+                  {tidalAuthURL ? "Link generated" : "Connect with Tidal"}
                 </Button>
               </div>
 
-              {showCallbackInput && (
-                <div className="space-y-2">
-                  <Label className="text-sm">After authorizing, paste the full redirect URL here:</Label>
-                  <div className="flex gap-2">
-                    <InputWithContext value={tidalCallbackURL} onChange={e => setTidalCallbackURL(e.target.value)}
-                      placeholder="https://login.tidal.com/..." className="flex-1 font-mono text-xs"/>
-                    <Button onClick={handleTidalCallback} disabled={!tidalCallbackURL.trim() || tidalConnecting} className="gap-1.5">
-                      {tidalConnecting ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>}
-                      Submit
-                    </Button>
+              {tidalAuthURL && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Step 1 — Open this link in your browser and log in with your Tidal Premium account:</Label>
+                    <div className="flex items-center gap-2 border rounded px-3 py-2 bg-muted/20">
+                      <code className="flex-1 text-xs font-mono truncate text-muted-foreground">{tidalAuthURL}</code>
+                      <a href={tidalAuthURL} target="_blank" rel="noopener noreferrer">
+                        <Button variant="outline" size="sm" className="shrink-0 gap-1.5">
+                          <ExternalLink className="h-3.5 w-3.5"/>
+                          Open
+                        </Button>
+                      </a>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Step 2 — After login, paste the full redirect URL from your browser's address bar:</Label>
+                    <div className="flex gap-2">
+                      <InputWithContext value={tidalCallbackURL} onChange={e => setTidalCallbackURL(e.target.value)}
+                        placeholder="https://listen.tidal.com/login/auth?code=..." className="flex-1 font-mono text-xs"/>
+                      <Button onClick={handleTidalCallback} disabled={!tidalCallbackURL.trim() || tidalConnecting} className="gap-1.5">
+                        {tidalConnecting ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>}
+                        Submit
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}

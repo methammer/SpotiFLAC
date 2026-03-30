@@ -776,25 +776,6 @@ func (a *App) IsFFprobeInstalled() (bool, error) { return backend.IsFFprobeInsta
 func (a *App) GetFFmpegPath() (string, error)    { return backend.GetFFmpegPath() }
 func (a *App) CheckFFmpegInstalled() (bool, error) { return backend.IsFFmpegInstalled() }
 
-type DownloadFFmpegResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Error   string `json:"error,omitempty"`
-}
-
-func (a *App) DownloadFFmpeg() DownloadFFmpegResponse {
-	fmt.Printf("[FFmpeg] status: starting\n")
-	err := backend.DownloadFFmpeg(func(progress int) {
-		fmt.Printf("[FFmpeg] progress: %d\n", progress)
-	})
-	if err != nil {
-		fmt.Printf("[FFmpeg] status: failed\n")
-		return DownloadFFmpegResponse{Success: false, Error: err.Error()}
-	}
-	fmt.Printf("[FFmpeg] status: completed\n")
-	return DownloadFFmpegResponse{Success: true, Message: "FFmpeg installed successfully"}
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Audio / File tools
 // ─────────────────────────────────────────────────────────────────────────────

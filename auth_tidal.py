@@ -16,9 +16,9 @@ def main():
         help="The URL of your SpotiFLAC instance (e.g. http://192.168.1.10:6890)",
     )
     parser.add_argument(
-        "--password",
+        "--token",
         default=None,
-        help="Your SpotiFLAC API password (if authentication is enabled)",
+        help="Your SpotiFLAC JWT token or API key (sk_spotiflac_...)",
     )
     args = parser.parse_args()
 
@@ -30,12 +30,16 @@ def main():
     print(f"Connecting to SpotiFLAC at: {host}")
 
     headers = {}
-    if args.password:
-        headers["Authorization"] = f"Bearer {args.password}"
+    if args.token:
+        token = args.token.strip()
+        if token.startswith("sk_spotiflac_"):
+            headers["X-API-Key"] = token
+        else:
+            headers["Authorization"] = f"Bearer {token}"
 
     # 1. Ask SpotiFLAC to generate the secure login URL
     print("\n[1/3] Requesting secure authentication URL from SpotiFLAC...")
-    req = urllib.request.Request(f"{host}/api/auth/tidal/url", headers=headers)
+    req = urllib.request.Request(f"{host}/api/v1/auth/tidal/url", headers=headers)
     try:
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode())
@@ -44,7 +48,7 @@ def main():
         print(f"❌ Error: SpotiFLAC returned HTTP {e.code}.")
         if e.code in [401, 403]:
             print(
-                "Hint: You might need to provide the SpotiFLAC password using --password=YOUR_PASSWORD"
+                "Hint: You need to provide a valid token using --token=YOUR_JWT_OR_API_KEY"
             )
         return
     except Exception as e:
@@ -85,23 +89,20 @@ def main():
     # 2. Send the code back to SpotiFLAC
     print("\n[2/3] Sending authorization code back to SpotiFLAC...")
 
-    payload = json.dumps({"url": redirect_url}).encode("utf-8")
+    payload = json.dumps({"callback_url": redirect_url}).encode("utf-8")
     headers["Content-Type"] = "application/json"
 
     req = urllib.request.Request(
-        f"{host}/api/auth/tidal/callback", data=payload, headers=headers, method="POST"
+        f"{host}/api/v1/auth/tidal/callback", data=payload, headers=headers, method="POST"
     )
     try:
         with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode())
-            if data.get("success"):
-                print("[3/3] ✅ SUCCESS! Tidal token has been securely saved.")
-                print(
-                    "SpotiFLAC can now download Lossless FLACs directly from the official Tidal API."
-                )
-                print("You can close this script.")
-            else:
-                print(f"❌ ERROR: Failed to authenticate. Server responded: {data}")
+            # 204 No Content = success
+            print("[3/3] ✅ SUCCESS! Tidal token has been securely saved.")
+            print(
+                "SpotiFLAC can now download Lossless FLACs directly from the official Tidal API."
+            )
+            print("You can close this script.")
     except urllib.error.HTTPError as e:
         error_msg = e.read().decode()
         print(f"❌ ERROR: Failed to authenticate (HTTP {e.code}).")

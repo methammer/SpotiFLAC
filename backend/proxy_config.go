@@ -25,11 +25,18 @@ var tidalProxies = []string{
 	"https://api.monochrome.tf",
 }
 
-// Amazon Music proxy base (without trailing slash or path)
-var amazonProxyBase = "https://amzn.afkarxyz.fun"
+// Amazon Music proxies (tried in order, first success wins)
+var amazonProxies = []string{"https://amzn.afkarxyz.fun"}
 
-// Deezer proxy base (without trailing slash or path)
-var deezerProxyBase = "https://api.deezmate.com"
+// Deezer proxies (tried in order, first success wins)
+var deezerProxies = []string{"https://api.deezmate.com"}
+
+// Qobuz community providers (base URL prefix, appended with trackID)
+var qobuzProviders = []string{
+	"https://dab.yeet.su/api/stream?trackId=",
+	"https://dabmusic.xyz/api/stream?trackId=",
+	"https://qbz.afkarxyz.fun/api/track/",
+}
 
 // ─── Getters (used by downloaders) ───────────────────────────────────────────
 
@@ -41,16 +48,20 @@ func GetTidalProxies() []string {
 	return cp
 }
 
-func GetAmazonProxyBase() string {
+func GetAmazonProxies() []string {
 	proxyMu.RLock()
 	defer proxyMu.RUnlock()
-	return amazonProxyBase
+	cp := make([]string, len(amazonProxies))
+	copy(cp, amazonProxies)
+	return cp
 }
 
-func GetDeezerProxyBase() string {
+func GetDeezerProxies() []string {
 	proxyMu.RLock()
 	defer proxyMu.RUnlock()
-	return deezerProxyBase
+	cp := make([]string, len(deezerProxies))
+	copy(cp, deezerProxies)
+	return cp
 }
 
 // ─── Setters (called from main package) ──────────────────────────────────────
@@ -63,14 +74,34 @@ func SetTidalProxies(proxies []string) {
 	tidalProxies = cp
 }
 
-func SetAmazonProxyBase(base string) {
+func SetAmazonProxies(proxies []string) {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
-	amazonProxyBase = base
+	cp := make([]string, len(proxies))
+	copy(cp, proxies)
+	amazonProxies = cp
 }
 
-func SetDeezerProxyBase(base string) {
+func SetDeezerProxies(proxies []string) {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
-	deezerProxyBase = base
+	cp := make([]string, len(proxies))
+	copy(cp, proxies)
+	deezerProxies = cp
+}
+
+func GetQobuzProviders() []string {
+	proxyMu.RLock()
+	defer proxyMu.RUnlock()
+	cp := make([]string, len(qobuzProviders))
+	copy(cp, qobuzProviders)
+	return cp
+}
+
+func SetQobuzProviders(providers []string) {
+	proxyMu.Lock()
+	defer proxyMu.Unlock()
+	cp := make([]string, len(providers))
+	copy(cp, providers)
+	qobuzProviders = cp
 }

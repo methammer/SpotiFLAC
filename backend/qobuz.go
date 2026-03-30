@@ -169,11 +169,7 @@ func (q *QobuzDownloader) GetDownloadURL(trackID int64, quality string, allowFal
 
 	fmt.Printf("Getting download URL for track ID: %d with requested quality: %s\n", trackID, qualityCode)
 
-	standardAPIs := []string{
-		"https://dab.yeet.su/api/stream?trackId=",
-		"https://dabmusic.xyz/api/stream?trackId=",
-		"https://qbz.afkarxyz.fun/api/track/",
-	}
+	standardAPIs := GetQobuzProviders()
 
 	downloadFunc := func(qual string) (string, error) {
 		type Provider struct {

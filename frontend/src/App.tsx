@@ -5,7 +5,7 @@ import { Search, X, ArrowUp } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getSettings, getSettingsWithDefaults, loadSettings, saveSettings, applyThemeMode, applyFont, updateSettings } from "@/lib/settings";
 import { applyTheme } from "@/lib/themes";
-import { CheckFFmpegInstalled, OpenFolder, DownloadFFmpeg } from "@/lib/rpc";
+import { OpenFolder } from "@/lib/rpc";
 import { LoginPage } from "@/components/LoginPage";
 import { isAuthenticated, clearAuth, getUser, tryLocalAuth, fetchMe } from "@/lib/auth";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
@@ -34,7 +34,6 @@ import { useLyrics } from "@/hooks/useLyrics";
 import { useCover } from "@/hooks/useCover";
 import { useAvailability } from "@/hooks/useAvailability";
 import { useDownloadQueueDialog } from "@/hooks/useDownloadQueueDialog";
-import { useDownloadProgress } from "@/hooks/useDownloadProgress";
 const HISTORY_KEY = "spotiflac_fetch_history";
 const MAX_HISTORY = 5;
 function App() {
@@ -65,8 +64,6 @@ function App() {
     const cover = useCover();
     const availability = useAvailability();
     const downloadQueue = useDownloadQueueDialog();
-    const downloadProgress = useDownloadProgress();
-    const [isFFmpegInstalled, setIsFFmpegInstalled] = useState<boolean | null>(null);
     const [authed, setAuthed] = useState<boolean>(false);
     const [checkingLocalAuth, setCheckingLocalAuth] = useState<boolean>(true);
     useEffect(() => {
@@ -88,9 +85,6 @@ function App() {
         initAuth();
     }, []);
     const [authUser, setAuthUser] = useState(getUser());
-    const [isInstallingFFmpeg, setIsInstallingFFmpeg] = useState(false);
-    const [ffmpegInstallProgress, setFfmpegInstallProgress] = useState(0);
-    const [ffmpegInstallStatus, setFfmpegInstallStatus] = useState("");
     useLayoutEffect(() => {
         const savedSettings = getSettings();
         if (savedSettings) {
@@ -111,19 +105,6 @@ function App() {
             }
         };
         initSettings();
-        // FFmpeg check lancé seulement si authed pour éviter le dialog sur 401
-        if (authed) {
-            const checkFFmpeg = async () => {
-                try {
-                    const installed = await CheckFFmpegInstalled();
-                    setIsFFmpegInstalled(installed);
-                } catch (err) {
-                    console.error("Failed to check FFmpeg:", err);
-                    setIsFFmpegInstalled(false);
-                }
-            };
-            checkFFmpeg();
-        }
         const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
         const handleChange = () => {
             const currentSettings = getSettings();
@@ -200,31 +181,6 @@ function App() {
         }
         catch (err) {
             console.error("Failed to load history:", err);
-        }
-    };
-    const handleInstallFFmpeg = async () => {
-        setIsInstallingFFmpeg(true);
-        setFfmpegInstallProgress(0);
-        setFfmpegInstallStatus("starting");
-        try {
-            setFfmpegInstallStatus("downloading");
-            const response = await DownloadFFmpeg();
-            if (response.success) {
-                toast.success("FFmpeg installed successfully!");
-                setIsFFmpegInstalled(true);
-            }
-            else {
-                toast.error(`Failed to install FFmpeg: ${response.error}`);
-            }
-        }
-        catch (error) {
-            console.error("Error installing FFmpeg:", error);
-            toast.error(`Error during FFmpeg installation: ${error}`);
-        }
-        finally {
-            setIsInstallingFFmpeg(false);
-            setFfmpegInstallProgress(0);
-            setFfmpegInstallStatus("");
         }
     };
     const saveHistory = (history: HistoryItem[]) => {
@@ -506,8 +462,6 @@ function App() {
         return <LoginPage onLogin={() => {
         setAuthed(true);
         setAuthUser(getUser());
-        setIsFFmpegInstalled(null);
-        CheckFFmpegInstalled().then(setIsFFmpegInstalled).catch(() => setIsFFmpegInstalled(false));
     }} />;
     }
 
@@ -555,50 +509,6 @@ function App() {
             </Dialog>
 
             
-            <Dialog open={isFFmpegInstalled === false} onOpenChange={() => { }}>
-                <DialogContent className="max-w-[360px] [&>button]:hidden p-6 gap-5">
-                    <DialogHeader className="space-y-2">
-                        <DialogTitle className="text-lg font-bold tracking-tight">
-                            FFmpeg Required
-                        </DialogTitle>
-                        <DialogDescription className="text-sm text-foreground/70 leading-relaxed font-normal">
-                            FFmpeg is essential for SpotiFLAC to function properly.
-                            This setup will download about <span className="text-foreground font-semibold">100-200MB</span> of data.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {isInstallingFFmpeg && (<div className="space-y-4">
-                            {ffmpegInstallStatus === "extracting" ? (<div className="flex flex-col items-center justify-center py-2 animate-in fade-in duration-500">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin"/>
-                                        <span className="text-sm font-bold tracking-tight">Extracting...</span>
-                                    </div>
-                                    <span className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] font-bold mt-2">Finalizing setup</span>
-                                </div>) : (<div className="space-y-3">
-                                    <div className="flex justify-between text-[11px] font-bold">
-                                        <div className="flex flex-col gap-0.5">
-                                            <span className="text-muted-foreground uppercase tracking-wider">Downloading...</span>
-                                            {downloadProgress.is_downloading && downloadProgress.mb_downloaded > 0 && (<span className="text-primary font-mono tabular-nums">
-                                                    {downloadProgress.mb_downloaded.toFixed(1)}MB
-                                                    {downloadProgress.speed_mbps > 0 && ` @ ${downloadProgress.speed_mbps.toFixed(1)}MB/s`}
-                                                </span>)}
-                                        </div>
-                                        <span className="text-xl font-bold tracking-tighter text-primary">{ffmpegInstallProgress}%</span>
-                                    </div>
-                                    <div className="h-1.5 w-full bg-secondary/30 rounded-full overflow-hidden">
-                                        <div className="h-full bg-primary transition-all duration-300 shadow-[0_0_10px_rgba(var(--primary),0.3)]" style={{ width: `${ffmpegInstallProgress}%` }}/>
-                                    </div>
-                                </div>)}
-                        </div>)}
-
-                    <DialogFooter className="flex-row gap-3 pt-2">
-                        <Button className={`${isInstallingFFmpeg ? 'w-full' : 'flex-1'} h-11 text-sm font-bold shadow-lg shadow-primary/10`} onClick={handleInstallFFmpeg} disabled={isInstallingFFmpeg}>
-                            {isInstallingFFmpeg ? "Installing..." : "Install now"}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
             <Dialog open={metadata.showApiModal} onOpenChange={metadata.setShowApiModal}>
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>

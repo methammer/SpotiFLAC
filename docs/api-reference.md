@@ -384,14 +384,11 @@ Returns OS, config path, home directory, app version.
 ```
 
 ### `GET /api/v1/system/ffmpeg`
-FFmpeg/ffprobe availability and path.
+FFmpeg/ffprobe availability and path. FFmpeg is bundled in the Docker image and always present in normal deployments.
 
 ```json
 { "installed": true, "ffprobe_installed": true, "ffmpeg_path": "/usr/bin/ffmpeg" }
 ```
-
-### `POST /api/v1/system/ffmpeg/install`
-Auto-download FFmpeg binaries from GitHub releases.
 
 ### `GET /api/v1/system/defaults`
 Returns default download path, filename format, etc.

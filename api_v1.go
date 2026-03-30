@@ -702,11 +702,6 @@ func (s *Server) registerV1Routes() {
 		})
 	}))
 
-	s.mux.Handle("POST /api/v1/system/ffmpeg/install", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
-		result := a.DownloadFFmpeg()
-		writeV1JSON(w, http.StatusAccepted, result)
-	}))
-
 	s.mux.Handle("GET /api/v1/system/defaults", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
 		writeV1JSON(w, http.StatusOK, a.GetDefaults())
 	}))
