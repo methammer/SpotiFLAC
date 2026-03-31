@@ -1307,7 +1307,7 @@ func parseSpotifyURI(input string) (spotifyURI, error) {
 
 	if strings.HasPrefix(trimmed, "spotify:") {
 		parts := strings.Split(trimmed, ":")
-		if len(parts) == 3 {
+		if len(parts) == 3 && parts[2] != "" {
 			switch parts[1] {
 			case "album", "track", "playlist", "artist":
 				return spotifyURI{Type: parts[1], ID: parts[2]}, nil

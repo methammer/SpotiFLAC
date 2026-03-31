@@ -17,9 +17,14 @@ func TestParseSpotifyURI(t *testing.T) {
 		{"avec intl-fr",         "https://open.spotify.com/intl-fr/track/4ozKsccDY52n3IEwbBJx0l", "track",    "4ozKsccDY52n3IEwbBJx0l", false},
 		{"spotify: track",       "spotify:track:4ozKsccDY52n3IEwbBJx0l",                          "track",    "4ozKsccDY52n3IEwbBJx0l", false},
 		{"spotify: album",       "spotify:album:4ozKsccDY52n3IEwbBJx0l",                          "album",    "4ozKsccDY52n3IEwbBJx0l", false},
-		{"URL vide → erreur",    "",                                                                "", "", true},
-		{"non-Spotify → erreur", "https://youtube.com/watch?v=abc",                               "", "", true},
-		{"path vide → erreur",   "https://open.spotify.com/",                                     "", "", true},
+		{"URL vide → erreur",            "",                                                                "", "", true},
+		{"non-Spotify → erreur",          "https://youtube.com/watch?v=abc",                               "", "", true},
+		{"path vide → erreur",            "https://open.spotify.com/",                                     "", "", true},
+		{"spotify:track: ID vide → err",  "spotify:track:",                                                "", "", true},
+		{"spotify:album: ID vide → err",  "spotify:album:",                                                "", "", true},
+		{"spotify: type inconnu → err",   "spotify:podcast:4ozKsccDY52n3IEwbBJx0l",                        "", "", true},
+		{"embed URL",                      "https://open.spotify.com/embed/track/4ozKsccDY52n3IEwbBJx0l",  "track", "4ozKsccDY52n3IEwbBJx0l", false},
+		{"play.spotify.com",               "https://play.spotify.com/track/4ozKsccDY52n3IEwbBJx0l",        "track", "4ozKsccDY52n3IEwbBJx0l", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

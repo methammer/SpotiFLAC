@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -49,8 +50,12 @@ func (a *AuthManager) CreateAPIKey(userID, name string, permissions []string) (s
 	}
 	rawKey := apiKeyPrefix + hex.EncodeToString(buf)
 
+	idBuf := make([]byte, 16)
+	if _, err := rand.Read(idBuf); err != nil {
+		return "", nil, fmt.Errorf("failed to generate key ID: %v", err)
+	}
 	key := &APIKey{
-		ID:          fmt.Sprintf("key-%d", time.Now().UnixNano()),
+		ID:          "key-" + hex.EncodeToString(idBuf),
 		Name:        name,
 		KeyHash:     hashAPIKey(rawKey),
 		UserID:      userID,
@@ -140,7 +145,7 @@ func (a *AuthManager) ValidateAPIKey(rawKey string) (*JWTClaims, bool) {
 				return nil
 			}
 			var key APIKey
-			if err := json.Unmarshal(v, &key); err == nil && key.KeyHash == hash {
+			if err := json.Unmarshal(v, &key); err == nil && hmac.Equal([]byte(key.KeyHash), []byte(hash)) {
 				found = &key
 			}
 			return nil
