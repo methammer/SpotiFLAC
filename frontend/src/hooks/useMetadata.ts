@@ -1,15 +1,18 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { getSettings } from "@/lib/settings";
 import { fetchSpotifyMetadata } from "@/lib/api";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
 import { AddFetchHistory } from "@/lib/rpc";
+import { getToken } from "@/lib/auth";
 import type { SpotifyMetadataResponse } from "@/types/api";
 export function useMetadata() {
     const [loading, setLoading] = useState(false);
+    const [tracksLoading, setTracksLoading] = useState(false);
     const [metadata, setMetadata] = useState<SpotifyMetadataResponse | null>(null);
     const [showApiModal, setShowApiModal] = useState(false);
     const [showAlbumDialog, setShowAlbumDialog] = useState(false);
+    const activeStreamRef = useRef<EventSource | null>(null);
     const [selectedAlbum, setSelectedAlbum] = useState<{
         id: string;
         name: string;
@@ -78,6 +81,85 @@ export function useMetadata() {
             console.error("Failed to save fetch history:", err);
         }
     };
+    const fetchArtistMetadataStreaming = (url: string): Promise<void> => {
+        // Close any in-progress stream before starting a new one
+        if (activeStreamRef.current) {
+            activeStreamRef.current.close();
+            activeStreamRef.current = null;
+        }
+        return new Promise((resolve, reject) => {
+            setLoading(true);
+            setTracksLoading(false);
+            setMetadata(null);
+
+            const token = getToken();
+            const streamUrl = `/api/v1/search/stream?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token ?? "")}`;
+            const es = new EventSource(streamUrl);
+            activeStreamRef.current = es;
+
+            // Accumulate data in a plain object — avoids stale-closure issues with state
+            const accumulated: { artist_info: any; album_list: any[]; track_list: any[] } = {
+                artist_info: null,
+                album_list: [],
+                track_list: [],
+            };
+
+            es.addEventListener("artist_info", (e: MessageEvent) => {
+                const data = JSON.parse(e.data);
+                accumulated.artist_info = data.artist_info;
+                accumulated.album_list = data.album_list ?? [];
+                accumulated.track_list = [];
+                setMetadata({ ...accumulated } as any);
+                setLoading(false);
+                setTracksLoading(true);
+                logger.success(`fetched artist: ${data.artist_info?.name}`);
+                logger.debug(`${accumulated.album_list.length} albums`);
+            });
+
+            es.addEventListener("album_tracks", (e: MessageEvent) => {
+                const data = JSON.parse(e.data);
+                accumulated.track_list = [...accumulated.track_list, ...(data.tracks ?? [])];
+                setMetadata({ ...accumulated } as any);
+            });
+
+            es.addEventListener("done", () => {
+                es.close();
+                activeStreamRef.current = null;
+                setTracksLoading(false);
+                saveToHistory(url, { ...accumulated } as any);
+                logger.info(`streaming complete: ${accumulated.track_list.length} tracks`);
+                toast.success("Metadata fetched successfully");
+                resolve();
+            });
+
+            es.addEventListener("stream_error", (e: MessageEvent) => {
+                es.close();
+                activeStreamRef.current = null;
+                setLoading(false);
+                setTracksLoading(false);
+                const msg = (() => { try { return JSON.parse(e.data).message; } catch { return "Failed to fetch artist data"; } })();
+                logger.error(`stream failed: ${msg}`);
+                const settings = getSettings();
+                if (!settings.useSpotFetchAPI) {
+                    setShowApiModal(true);
+                } else {
+                    toast.error(msg);
+                }
+                reject(new Error(msg));
+            });
+
+            es.onerror = () => {
+                es.close();
+                activeStreamRef.current = null;
+                setLoading(false);
+                setTracksLoading(false);
+                const msg = "Stream connection error";
+                logger.error(msg);
+                reject(new Error(msg));
+            };
+        });
+    };
+
     const fetchMetadataDirectly = async (url: string) => {
         const urlType = getUrlType(url);
         logger.info(`fetching ${urlType} metadata...`);
@@ -167,9 +249,9 @@ export function useMetadata() {
             logger.debug("converted to discography url");
         }
         if (isArtistUrl) {
-            logger.info("artist url detected");
+            logger.info("artist url detected — using streaming");
             setPendingArtistName(null);
-            await fetchMetadataDirectly(urlToFetch);
+            await fetchArtistMetadataStreaming(urlToFetch);
         }
         else {
             await fetchMetadataDirectly(urlToFetch);
@@ -193,7 +275,7 @@ export function useMetadata() {
         logger.debug(`artist clicked: ${artist.name}`);
         const artistUrl = artist.external_urls.replace(/\/$/, "") + "/discography/all";
         setPendingArtistName(artist.name);
-        await fetchMetadataDirectly(artistUrl);
+        await fetchArtistMetadataStreaming(artistUrl);
         return artistUrl;
     };
     const handleConfirmAlbumFetch = async () => {
@@ -247,6 +329,7 @@ export function useMetadata() {
     };
     return {
         loading,
+        tracksLoading,
         metadata,
         showAlbumDialog,
         setShowAlbumDialog,

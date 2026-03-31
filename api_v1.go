@@ -176,6 +176,49 @@ func (s *Server) registerV1Routes() {
 		writeV1JSON(w, http.StatusOK, json.RawMessage(result))
 	}))
 
+	// ── Search / artist streaming ─────────────────────────────────────────
+	// SSE endpoint — streams artist discography progressively:
+	//   event: artist_info   → artist metadata + album list (emitted first, ~1-2s)
+	//   event: album_tracks  → tracks for one album (emitted N times as they complete)
+	//   event: done          → all albums processed
+	//   event: stream_error  → fatal error
+	s.mux.Handle("GET /api/v1/search/stream", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeV1Error(w, http.StatusInternalServerError, "streaming not supported")
+			return
+		}
+		spotifyURL := r.URL.Query().Get("url")
+		if spotifyURL == "" {
+			writeV1Error(w, http.StatusBadRequest, "url parameter required")
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		emit := func(eventType string, data interface{}) error {
+			select {
+			case <-r.Context().Done():
+				return r.Context().Err()
+			default:
+			}
+			sendSSEEvent(w, flusher, eventType, data)
+			return nil
+		}
+
+		if err := backend.StreamArtistDiscography(r.Context(), spotifyURL, emit); err != nil {
+			// Only send error event if client is still connected
+			select {
+			case <-r.Context().Done():
+			default:
+				sendSSEEvent(w, flusher, "stream_error", map[string]string{"message": err.Error()})
+			}
+		}
+	}))
+
 	s.mux.Handle("GET /api/v1/search/query", s.v1Auth(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
 		searchType := r.URL.Query().Get("type")

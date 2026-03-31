@@ -1088,50 +1088,7 @@ func (c *SpotifyMetadataClient) formatArtistDiscographyData(ctx context.Context,
 				return
 			}
 
-			tracks := make([]AlbumTrackMetadata, 0, len(albumData.Tracks))
-			for idx, tr := range albumData.Tracks {
-				durationMS := parseDuration(tr.Duration)
-				trackNumber := idx + 1
-
-				var artistID, artistURL string
-				if len(tr.ArtistIds) > 0 {
-					artistID = tr.ArtistIds[0]
-					artistURL = fmt.Sprintf("https://open.spotify.com/artist/%s", artistID)
-				}
-
-				artistsData := make([]ArtistSimple, 0, len(tr.ArtistIds))
-				for _, id := range tr.ArtistIds {
-					artistsData = append(artistsData, ArtistSimple{
-						ID:          id,
-						Name:        "",
-						ExternalURL: fmt.Sprintf("https://open.spotify.com/artist/%s", id),
-					})
-				}
-
-				tracks = append(tracks, AlbumTrackMetadata{
-					SpotifyID:   tr.ID,
-					Artists:     tr.Artists,
-					Name:        tr.Name,
-					AlbumName:   albumData.Name,
-					AlbumArtist: raw.Name,
-					AlbumType:   "album",
-					DurationMS:  durationMS,
-					Images:      albumData.Cover,
-					ReleaseDate: albumData.ReleaseDate,
-					TrackNumber: trackNumber,
-					TotalTracks: albumData.Count,
-					DiscNumber:  tr.DiscNumber,
-					ExternalURL: fmt.Sprintf("https://open.spotify.com/track/%s", tr.ID),
-					AlbumID:     albumID,
-					AlbumURL:    fmt.Sprintf("https://open.spotify.com/album/%s", albumID),
-					ArtistID:    artistID,
-					ArtistURL:   artistURL,
-					ArtistsData: artistsData,
-					Plays:       tr.Plays,
-					IsExplicit:  tr.IsExplicit,
-				})
-			}
-			resultsChan <- fetchResult{tracks: tracks}
+			resultsChan <- fetchResult{tracks: buildAlbumTracks(albumData, albumID, raw.Name)}
 		}(alb.ID, alb.Name)
 	}
 
@@ -1148,6 +1105,179 @@ func (c *SpotifyMetadataClient) formatArtistDiscographyData(ctx context.Context,
 		AlbumList:  albumList,
 		TrackList:  allTracks,
 	}, nil
+}
+
+// buildAlbumTracks converts a fetched album into AlbumTrackMetadata slice.
+func buildAlbumTracks(albumData *apiAlbumResponse, albumID string, artistName string) []AlbumTrackMetadata {
+	tracks := make([]AlbumTrackMetadata, 0, len(albumData.Tracks))
+	for idx, tr := range albumData.Tracks {
+		durationMS := parseDuration(tr.Duration)
+		trackNumber := idx + 1
+
+		var artistID, artistURL string
+		if len(tr.ArtistIds) > 0 {
+			artistID = tr.ArtistIds[0]
+			artistURL = fmt.Sprintf("https://open.spotify.com/artist/%s", artistID)
+		}
+
+		artistsData := make([]ArtistSimple, 0, len(tr.ArtistIds))
+		for _, id := range tr.ArtistIds {
+			artistsData = append(artistsData, ArtistSimple{
+				ID:          id,
+				Name:        "",
+				ExternalURL: fmt.Sprintf("https://open.spotify.com/artist/%s", id),
+			})
+		}
+
+		tracks = append(tracks, AlbumTrackMetadata{
+			SpotifyID:   tr.ID,
+			Artists:     tr.Artists,
+			Name:        tr.Name,
+			AlbumName:   albumData.Name,
+			AlbumArtist: artistName,
+			AlbumType:   "album",
+			DurationMS:  durationMS,
+			Images:      albumData.Cover,
+			ReleaseDate: albumData.ReleaseDate,
+			TrackNumber: trackNumber,
+			TotalTracks: albumData.Count,
+			DiscNumber:  tr.DiscNumber,
+			ExternalURL: fmt.Sprintf("https://open.spotify.com/track/%s", tr.ID),
+			AlbumID:     albumID,
+			AlbumURL:    fmt.Sprintf("https://open.spotify.com/album/%s", albumID),
+			ArtistID:    artistID,
+			ArtistURL:   artistURL,
+			ArtistsData: artistsData,
+			Plays:       tr.Plays,
+			IsExplicit:  tr.IsExplicit,
+		})
+	}
+	return tracks
+}
+
+// StreamArtistDiscography streams artist discography data progressively via an emit callback.
+//
+// Events emitted (in order):
+//   - "artist_info" : artist metadata + full album list  (emitted as soon as album pagination is done, ~1-2s)
+//   - "album_tracks": tracks for one album               (emitted N times, one per album, as they complete)
+//   - "done"        : all albums processed
+//   - caller should emit "stream_error" itself if this function returns a non-nil error
+func StreamArtistDiscography(ctx context.Context, spotifyURL string, emit func(eventType string, data interface{}) error) error {
+	client := NewSpotifyMetadataClient()
+
+	parsed, err := parseSpotifyURI(spotifyURL)
+	if err != nil {
+		return err
+	}
+	if parsed.Type == "artist" {
+		parsed = spotifyURI{Type: "artist_discography", ID: parsed.ID, DiscographyGroup: "all"}
+	}
+	if parsed.Type != "artist_discography" {
+		return fmt.Errorf("URL is not an artist URL")
+	}
+
+	raw, err := client.fetchArtistDiscography(ctx, parsed)
+	if err != nil {
+		return err
+	}
+
+	// Build artist info and album list (fast path — no track fetching yet)
+	info := ArtistInfoMetadata{
+		Name:            raw.Name,
+		Followers:       raw.Stats.Followers,
+		Genres:          []string{},
+		Images:          raw.Avatar,
+		Header:          raw.Header,
+		Gallery:         raw.Gallery,
+		ExternalURL:     fmt.Sprintf("https://open.spotify.com/artist/%s", raw.ID),
+		DiscographyType: "all",
+		TotalAlbums:     raw.Discography.Total,
+		Biography:       raw.Profile.Biography,
+		Verified:        raw.Profile.Verified,
+		Listeners:       raw.Stats.Listeners,
+		Rank:            raw.Stats.Rank,
+	}
+
+	albumList := make([]DiscographyAlbumMetadata, 0, len(raw.Discography.All))
+	for _, alb := range raw.Discography.All {
+		albumList = append(albumList, DiscographyAlbumMetadata{
+			ID:          alb.ID,
+			Name:        alb.Name,
+			AlbumType:   alb.Type,
+			ReleaseDate: alb.Date,
+			TotalTracks: alb.TotalTracks,
+			Artists:     raw.Name,
+			Images:      alb.Cover,
+			ExternalURL: fmt.Sprintf("https://open.spotify.com/album/%s", alb.ID),
+		})
+	}
+
+	// Phase 1: emit artist info + album list immediately
+	if err := emit("artist_info", map[string]interface{}{
+		"artist_info": info,
+		"album_list":  albumList,
+	}); err != nil {
+		return err
+	}
+
+	if len(raw.Discography.All) == 0 {
+		return emit("done", map[string]interface{}{})
+	}
+
+	// Phase 2: fetch tracks concurrently, emit per album as they complete
+	type fetchResult struct {
+		albumID string
+		tracks  []AlbumTrackMetadata
+		err     error
+	}
+
+	resultsChan := make(chan fetchResult, len(raw.Discography.All))
+	sem := make(chan struct{}, 5)
+
+	sharedClient := NewSpotifyClient()
+	if err := sharedClient.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize spotify client: %w", err)
+	}
+
+	for _, alb := range raw.Discography.All {
+		go func(albumID, albumName string) {
+			sem <- struct{}{}
+			time.Sleep(100 * time.Millisecond)
+			defer func() { <-sem }()
+
+			select {
+			case <-ctx.Done():
+				resultsChan <- fetchResult{albumID: albumID, err: ctx.Err()}
+				return
+			default:
+			}
+
+			albumData, err := client.fetchAlbumWithClient(ctx, sharedClient, albumID)
+			if err != nil {
+				fmt.Printf("⚠ stream: error fetching tracks for album %s: %v\n", albumName, err)
+				resultsChan <- fetchResult{albumID: albumID, tracks: []AlbumTrackMetadata{}}
+				return
+			}
+			resultsChan <- fetchResult{albumID: albumID, tracks: buildAlbumTracks(albumData, albumID, raw.Name)}
+		}(alb.ID, alb.Name)
+	}
+
+	for range raw.Discography.All {
+		res := <-resultsChan
+		if res.err != nil {
+			// Context cancelled — stop streaming
+			return res.err
+		}
+		if err := emit("album_tracks", map[string]interface{}{
+			"album_id": res.albumID,
+			"tracks":   res.tracks,
+		}); err != nil {
+			// Client disconnected
+			return err
+		}
+	}
+
+	return emit("done", map[string]interface{}{})
 }
 
 func parseDuration(durationStr string) int {

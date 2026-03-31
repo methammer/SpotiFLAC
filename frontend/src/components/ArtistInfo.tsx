@@ -37,6 +37,7 @@ interface ArtistInfoProps {
         total_tracks?: number;
     }>;
     trackList: TrackMetadata[];
+    tracksLoading?: boolean;
     searchQuery: string;
     sortBy: string;
     selectedTracks: string[];
@@ -93,7 +94,7 @@ interface ArtistInfoProps {
     onTrackClick?: (track: TrackMetadata) => void;
     onBack?: () => void;
 }
-export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, isDownloading, bulkDownloadType, downloadProgress, currentDownloadInfo, currentPage, itemsPerPage, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, isBulkDownloadingCovers, isBulkDownloadingLyrics, onSearchChange, onSortChange, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadLyrics, onDownloadCover, onCheckAvailability, onDownloadAllLyrics, onDownloadAllCovers, onDownloadAll, onDownloadSelected, onStopDownload, onOpenFolder, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, }: ArtistInfoProps) {
+export function ArtistInfo({ artistInfo, albumList, trackList, tracksLoading, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, isDownloading, bulkDownloadType, downloadProgress, currentDownloadInfo, currentPage, itemsPerPage, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, isBulkDownloadingCovers, isBulkDownloadingLyrics, onSearchChange, onSortChange, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadLyrics, onDownloadCover, onCheckAvailability, onDownloadAllLyrics, onDownloadAllCovers, onDownloadAll, onDownloadSelected, onStopDownload, onOpenFolder, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, }: ArtistInfoProps) {
     const [downloadingHeader, setDownloadingHeader] = useState(false);
     const [downloadingAvatar, setDownloadingAvatar] = useState(false);
     const [downloadingGalleryIndex, setDownloadingGalleryIndex] = useState<number | null>(null);
@@ -401,8 +402,9 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
             <button onClick={() => setActiveTab("albums")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "albums" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
                 Albums
             </button>
-            <button onClick={() => setActiveTab("tracks")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "tracks" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
+            <button onClick={() => setActiveTab("tracks")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground flex items-center gap-1.5 ${activeTab === "tracks" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
                 All Tracks
+                {tracksLoading && <Spinner className="h-3 w-3" />}
             </button>
             {hasGallery && (<button onClick={() => setActiveTab("gallery")} className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px hover:text-foreground ${activeTab === "gallery" ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}>
                     Gallery
