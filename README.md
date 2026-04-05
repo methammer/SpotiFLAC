@@ -1,3 +1,12 @@
+<div align="center">
+  <h1>🚨 PROJECT MOVED 🚨</h1>
+  <p><b>This account is temporarily restricted, so development of SpotiFLAC has moved!</b></p>
+  <p>All new updates and releases will be published on the new repository.</p>
+  <h3>👉 <a href="https://github.com/sos-pc/SpotiFLAC-SH">Click here to visit the new repository</a> 👈</h3>
+  <br>
+</div>
+<hr>
+
 # SpotiFLAC Web
 
 [![Latest Release](https://img.shields.io/github/v/release/methammer/SpotiFLAC?style=flat-square)](https://github.com/methammer/SpotiFLAC/releases/latest)
